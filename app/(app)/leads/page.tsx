@@ -1,5 +1,8 @@
-import { ModulePage } from '@/features/module-shell/module-page';
+import { LeadsList } from '@/components/leads/leads-list';
+import { getLeadsPageData } from '@/services/leads/queries';
 
-export default function LeadsPage() {
-  return <ModulePage moduleKey="leads" />;
+export default async function LeadsPage() {
+  const { leads, profiles, summary } = await getLeadsPageData();
+
+  return <LeadsList leads={leads} profiles={profiles} summary={summary} />;
 }
