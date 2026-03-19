@@ -35,6 +35,18 @@ function parseOptionalDateTime(value: FormDataEntryValue | null) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function parseOptionalSelectWithCustom(formData: FormData, fieldName: string) {
+  const selectedOption = parseOptionalString(formData.get(`${fieldName}_option`));
+  const customValue = parseOptionalString(formData.get(`${fieldName}_custom`));
+  const fallbackValue = parseOptionalString(formData.get(fieldName));
+
+  if (selectedOption === 'Otro') {
+    return customValue;
+  }
+
+  return selectedOption ?? fallbackValue;
+}
+
 function sanitizeLeadPayload(formData: FormData, actorId: string) {
   const fullName = String(formData.get('full_name') ?? '').trim();
   const status = String(formData.get('status') ?? '').trim() as LeadStatus;
@@ -59,15 +71,15 @@ function sanitizeLeadPayload(formData: FormData, actorId: string) {
       phone: parseOptionalString(formData.get('phone')),
       email: parseOptionalString(formData.get('email')),
       language: String(formData.get('language') ?? 'es').trim() || 'es',
-      source_platform: parseOptionalString(formData.get('source_platform')),
+      source_platform: parseOptionalSelectWithCustom(formData, 'source_platform'),
       status,
       priority,
-      event_type: parseOptionalString(formData.get('event_type')),
+      event_type: parseOptionalSelectWithCustom(formData, 'event_type'),
       tentative_event_date: parseOptionalString(formData.get('tentative_event_date')),
       tentative_event_time: parseOptionalString(formData.get('tentative_event_time')),
       location: parseOptionalString(formData.get('location')),
       guest_count: parseOptionalInteger(formData.get('guest_count')),
-      service_interest: parseOptionalString(formData.get('service_interest')),
+      service_interest: parseOptionalSelectWithCustom(formData, 'service_interest'),
       quoted_total: parseOptionalNumber(formData.get('quoted_total')),
       promotion_offered: parseOptionalString(formData.get('promotion_offered')),
       next_action: nextAction,

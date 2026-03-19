@@ -1,7 +1,7 @@
 import type { Route } from 'next';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { Clock3, Mail, MapPin, Phone, UserRound } from 'lucide-react';
+import { Clock3, Mail, MapPin, PencilLine, Phone, Plus, UserRound } from 'lucide-react';
 
 import { LeadPriorityBadge, LeadStatusBadge } from '@/components/leads/lead-status-badge';
 import { Button } from '@/components/ui/button';
@@ -23,23 +23,40 @@ function formatDate(value: string | null) {
 export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
   return (
     <div className="flex flex-col gap-6">
-      <section className="flex flex-col gap-4 rounded-[2rem] border border-border bg-slate-950 p-6 text-white shadow-panel sm:p-8">
+      <section className="flex flex-col gap-5 rounded-[2rem] border border-border bg-slate-950 p-6 text-white shadow-panel sm:p-8">
         <div className="flex flex-wrap items-center gap-3">
           <LeadStatusBadge status={lead.status} />
           <LeadPriorityBadge priority={lead.priority} />
         </div>
-        <div className="space-y-2">
-          <h1 className="text-3xl font-semibold">{lead.full_name}</h1>
-          <p className="text-sm text-slate-300">
-            Responsable actual: {lead.responsible_profile_id ? profiles[lead.responsible_profile_id]?.full_name ?? 'Asignado' : 'Sin asignar'}
-          </p>
+        <div className="space-y-3">
+          <div>
+            <h1 className="text-3xl font-semibold">{lead.full_name}</h1>
+            <p className="mt-2 text-sm text-slate-300">
+              Responsable actual: {lead.responsible_profile_id ? profiles[lead.responsible_profile_id]?.full_name ?? 'Asignado' : 'Sin asignar'}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-white/5 p-4 text-sm text-slate-200">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Próxima acción</p>
+            <p className="mt-2">{lead.next_action}</p>
+          </div>
         </div>
         <div className="flex flex-wrap gap-3">
           <Button asChild>
-            <Link href={`/leads/${lead.id}/editar` as Route}>Editar lead</Link>
+            <Link href={`/leads/${lead.id}/editar` as Route}>
+              <PencilLine className="size-4" />
+              Editar lead
+            </Link>
           </Button>
-          <Button asChild variant="outline">
-            <Link href="/leads">Volver al listado</Link>
+          <Button asChild variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+            <Link href="/leads">
+              Volver al listado
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+            <Link href="/leads/nuevo">
+              <Plus className="size-4" />
+              Nuevo lead
+            </Link>
           </Button>
         </div>
       </section>
@@ -91,7 +108,7 @@ export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
           <Card>
             <CardHeader>
               <CardTitle>Resumen operativo</CardTitle>
-              <CardDescription>Base lista para crecer hacia historial, cotización y conversión.</CardDescription>
+              <CardDescription>Acceso rápido a los datos más consultados del lead.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               <SummaryRow label="Estado" value={leadStatusLabels[lead.status]} />
