@@ -8,7 +8,7 @@ Base interna de Manna Snack Bars construida con Next.js App Router, TypeScript, 
 - Layout administrativo mobile-first con sidebar, header, navegación móvil y cierre de sesión visible.
 - Rutas públicas y protegidas con autenticación real preparada para Supabase SSR.
 - Base funcional de roles (`owner`, `manager`, `empleado`) y perfil básico de empleado.
-- Migración inicial para perfil de usuario autenticado y estado activo/inactivo.
+- SQL inicial para perfiles autenticados y estado activo/inactivo.
 
 ## Variables de entorno
 
@@ -22,9 +22,12 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_AUTH_ENFORCED=true
 ```
 
-## Migración mínima necesaria
+## SQL inicial de Supabase
 
-Aplica la migración ubicada en `supabase/migrations/20260319_auth_profiles.sql` antes de probar roles y perfil básico.
+Puedes usar cualquiera de estos archivos según el flujo de trabajo:
+
+- `supabase/migrations/20260319_auth_profiles.sql` para migraciones versionadas.
+- `supabase/sql/initial_auth_profiles.sql` para pegar directamente en Supabase SQL Editor.
 
 ## Siguiente bloque sugerido
 
