@@ -1,25 +1,25 @@
-import {
-  Bell,
-  BriefcaseBusiness,
-  CalendarRange,
-  ClipboardList,
-  FileText,
-  LayoutDashboard,
-  MessageSquareText,
-  Package,
-  Settings,
-  ShieldCheck,
-  Users,
-  WalletCards,
-} from 'lucide-react';
-
+import type { Route } from 'next';
 import type { PermissionKey } from '@/types/auth';
 
+export type NavigationIconKey =
+  | 'dashboard'
+  | 'leads'
+  | 'clientes'
+  | 'cotizaciones'
+  | 'eventos'
+  | 'tareas'
+  | 'notificaciones'
+  | 'comunicacion'
+  | 'empleados'
+  | 'finanzas'
+  | 'inventario'
+  | 'configuracion';
+
 export interface NavigationItem {
-  href: string;
+  href: Route;
   label: string;
   description: string;
-  icon: typeof LayoutDashboard;
+  icon: NavigationIconKey;
   permission: PermissionKey;
 }
 
@@ -28,84 +28,84 @@ export const navigationItems: NavigationItem[] = [
     href: '/dashboard',
     label: 'Dashboard',
     description: 'Resumen operativo del negocio.',
-    icon: LayoutDashboard,
+    icon: 'dashboard',
     permission: 'dashboard.view',
   },
   {
     href: '/leads',
     label: 'Leads',
     description: 'Seguimiento inicial de oportunidades comerciales.',
-    icon: BriefcaseBusiness,
+    icon: 'leads',
     permission: 'crm.view',
   },
   {
     href: '/clientes',
     label: 'Clientes',
     description: 'Base de relaciones activas y potenciales.',
-    icon: Users,
+    icon: 'clientes',
     permission: 'crm.view',
   },
   {
     href: '/cotizaciones',
     label: 'Cotizaciones',
     description: 'Propuestas y precios pendientes por formalizar.',
-    icon: FileText,
+    icon: 'cotizaciones',
     permission: 'quotes.view',
   },
   {
     href: '/eventos',
     label: 'Eventos',
     description: 'Planeación operativa y calendario.',
-    icon: CalendarRange,
+    icon: 'eventos',
     permission: 'events.view',
   },
   {
     href: '/tareas',
     label: 'Tareas',
     description: 'Gestión de pendientes por equipo.',
-    icon: ClipboardList,
+    icon: 'tareas',
     permission: 'tasks.view',
   },
   {
     href: '/notificaciones',
     label: 'Notificaciones',
     description: 'Alertas y recordatorios internos.',
-    icon: Bell,
+    icon: 'notificaciones',
     permission: 'notifications.view',
   },
   {
     href: '/comunicacion',
     label: 'Comunicación',
     description: 'Mensajes internos y contexto del equipo.',
-    icon: MessageSquareText,
+    icon: 'comunicacion',
     permission: 'communication.view',
   },
   {
     href: '/empleados',
     label: 'Empleados',
     description: 'Estructura del equipo y perfiles.',
-    icon: ShieldCheck,
+    icon: 'empleados',
     permission: 'employees.view',
   },
   {
     href: '/finanzas',
     label: 'Finanzas',
     description: 'Visión interna de indicadores financieros.',
-    icon: WalletCards,
+    icon: 'finanzas',
     permission: 'finance.view',
   },
   {
     href: '/inventario',
     label: 'Inventario',
     description: 'Control futuro de insumos y stock.',
-    icon: Package,
+    icon: 'inventario',
     permission: 'inventory.view',
   },
   {
     href: '/configuracion',
     label: 'Configuración',
     description: 'Preferencias, permisos y parámetros del sistema.',
-    icon: Settings,
+    icon: 'configuracion',
     permission: 'settings.view',
   },
 ];

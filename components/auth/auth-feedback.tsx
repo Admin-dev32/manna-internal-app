@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import type { AuthActionState } from '@/services/auth/actions';
+import type { AuthActionState } from '@/services/auth/auth-action-state';
 
 interface AuthFeedbackProps {
   state: AuthActionState;

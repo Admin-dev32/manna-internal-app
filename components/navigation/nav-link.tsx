@@ -1,23 +1,55 @@
 'use client';
 
+import type { Route } from 'next';
 import type { ComponentType } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import {
+  Bell,
+  BriefcaseBusiness,
+  CalendarRange,
+  ClipboardList,
+  FileText,
+  LayoutDashboard,
+  MessageSquareText,
+  Package,
+  Settings,
+  ShieldCheck,
+  Users,
+  WalletCards,
+} from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import type { NavigationIconKey } from '@/config/navigation';
 import { cn } from '@/lib/utils';
 
+const iconMap = {
+  dashboard: LayoutDashboard,
+  leads: BriefcaseBusiness,
+  clientes: Users,
+  cotizaciones: FileText,
+  eventos: CalendarRange,
+  tareas: ClipboardList,
+  notificaciones: Bell,
+  comunicacion: MessageSquareText,
+  empleados: ShieldCheck,
+  finanzas: WalletCards,
+  inventario: Package,
+  configuracion: Settings,
+} satisfies Record<NavigationIconKey, ComponentType<{ className?: string }>>;
+
 interface NavLinkProps {
-  href: string;
+  href: Route;
   label: string;
   description?: string;
-  icon: ComponentType<{ className?: string }>;
+  icon: NavigationIconKey;
   compact?: boolean;
 }
 
-export function NavLink({ href, label, description, icon: Icon, compact = false }: NavLinkProps) {
+export function NavLink({ href, label, description, icon, compact = false }: NavLinkProps) {
   const pathname = usePathname();
   const isActive = pathname === href;
+  const Icon = iconMap[icon];
 
   return (
     <Link

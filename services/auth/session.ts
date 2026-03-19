@@ -3,7 +3,8 @@ import { cache } from 'react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { hasSupabaseCredentials } from '@/lib/supabase/env';
 import { normalizeRole } from '@/lib/auth/roles';
-import type { AppUser, ProfileRecord, SessionContext } from '@/types/auth';
+import { getProfileRecordByUserId } from '@/services/auth/profile';
+import type { AppUser, SessionContext } from '@/types/auth';
 
 const demoUser: AppUser = {
   id: 'demo-owner',
@@ -12,24 +13,6 @@ const demoUser: AppUser = {
   rol: 'owner',
   estado: 'activo',
 };
-
-async function getProfileRecord(userId: string) {
-  const supabase = await createSupabaseServerClient();
-
-  if (!supabase) return null;
-
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name, role, is_active')
-    .eq('id', userId)
-    .maybeSingle();
-
-  const profile = data as ProfileRecord | null;
-
-  if (error) return null;
-
-  return profile;
-}
 
 export const getSessionContext = cache(async (): Promise<SessionContext> => {
   if (!hasSupabaseCredentials()) {
@@ -51,9 +34,10 @@ export const getSessionContext = cache(async (): Promise<SessionContext> => {
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  if (userError || !user) {
     return {
       user: null,
       isAuthenticated: false,
@@ -61,7 +45,7 @@ export const getSessionContext = cache(async (): Promise<SessionContext> => {
     };
   }
 
-  const profile = await getProfileRecord(user.id);
+  const profile = await getProfileRecordByUserId(supabase, user.id);
   const roleFromAuth = user.app_metadata?.role ?? user.user_metadata?.role;
   const fullName = user.user_metadata?.full_name ?? user.user_metadata?.nombre;
 

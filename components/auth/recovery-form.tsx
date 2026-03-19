@@ -7,9 +7,10 @@ import { AuthFeedback } from '@/components/auth/auth-feedback';
 import { AuthSubmitButton } from '@/components/auth/auth-submit-button';
 import { Input } from '@/components/ui/input';
 import { recoverAccessAction } from '@/services/auth/actions';
+import { initialAuthActionState } from '@/services/auth/auth-action-state';
 
 export function RecoveryForm() {
-  const [state, formAction] = useActionState(recoverAccessAction, { status: 'idle' as const });
+  const [state, formAction] = useActionState(recoverAccessAction, initialAuthActionState);
 
   return (
     <form className="space-y-4" action={formAction}>

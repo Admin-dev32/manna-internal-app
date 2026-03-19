@@ -8,6 +8,7 @@ import { AuthFeedback } from '@/components/auth/auth-feedback';
 import { AuthSubmitButton } from '@/components/auth/auth-submit-button';
 import { Input } from '@/components/ui/input';
 import { loginAction } from '@/services/auth/actions';
+import { initialAuthActionState } from '@/services/auth/auth-action-state';
 
 interface LoginFormProps {
   next?: string;
@@ -15,7 +16,9 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ next, initialMessage }: LoginFormProps) {
-  const initialState = initialMessage ? { status: 'error' as const, message: initialMessage } : { status: 'idle' as const };
+  const initialState = initialMessage
+    ? { status: 'error' as const, message: initialMessage }
+    : initialAuthActionState;
 
   const [state, formAction] = useActionState(loginAction, initialState);
 

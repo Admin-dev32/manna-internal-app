@@ -8,9 +8,10 @@ import { AuthFeedback } from '@/components/auth/auth-feedback';
 import { AuthSubmitButton } from '@/components/auth/auth-submit-button';
 import { Input } from '@/components/ui/input';
 import { updatePasswordAction } from '@/services/auth/actions';
+import { initialAuthActionState } from '@/services/auth/auth-action-state';
 
 export function UpdatePasswordForm() {
-  const [state, formAction] = useActionState(updatePasswordAction, { status: 'idle' as const });
+  const [state, formAction] = useActionState(updatePasswordAction, initialAuthActionState);
 
   return (
     <form className="space-y-4" action={formAction}>
