@@ -1,19 +1,17 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Route } from 'next';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   CalendarClock,
-  CalendarDays,
   ChevronDown,
   ChevronRight,
   Clock3,
   Eye,
-  KanbanSquare,
-  LayoutGrid,
   ListFilter,
   PencilLine,
   Plus,
@@ -30,9 +28,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { leadStatusOptions, leadViewOptions } from '@/config/leads';
+import { leadStatusOptions } from '@/config/leads';
+import { updateLeadStatusAction } from '@/services/leads/actions';
 import { cn } from '@/lib/utils';
-import type { LeadProfileOption, LeadRecord } from '@/types/leads';
+import type { LeadProfileOption, LeadRecord, LeadStatus } from '@/types/leads';
 
 interface LeadsListProps {
   leads: LeadRecord[];
@@ -55,6 +54,7 @@ const priorityWeight = {
 } as const;
 
 const statusWeight = Object.fromEntries(leadStatusOptions.map((option, index) => [option.value, index])) as Record<string, number>;
+const FILTERS_STORAGE_KEY = 'manna.leads.filters.collapsed';
 
 function formatDate(value: string | null, dateOnly = false) {
   if (!value) return 'Sin fecha';
@@ -99,13 +99,33 @@ function matchesSearch(lead: LeadRecord, term: string) {
 }
 
 export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
+  const router = useRouter();
+  const [boardLeads, setBoardLeads] = useState(leads);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | LeadRecord['status']>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | LeadRecord['priority']>('all');
   const [responsibleFilter, setResponsibleFilter] = useState<'all' | 'unassigned' | string>('all');
   const [sortMode, setSortMode] = useState<SortMode>('follow_up');
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [pendingLeadId, setPendingLeadId] = useState<string | null>(null);
+  const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setBoardLeads(leads);
+  }, [leads]);
+
+  useEffect(() => {
+    const storedValue = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+    if (storedValue === 'true') {
+      setFiltersCollapsed(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(FILTERS_STORAGE_KEY, String(filtersCollapsed));
+  }, [filtersCollapsed]);
 
   const viewCards = [
     { label: 'Total', value: summary.total.toString() },
@@ -115,7 +135,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
   ];
 
   const filteredAndSortedLeads = useMemo(() => {
-    const filtered = leads.filter((lead) => {
+    const filtered = boardLeads.filter((lead) => {
       if (search && !matchesSearch(lead, search)) return false;
       if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
       if (priorityFilter !== 'all' && lead.priority !== priorityFilter) return false;
@@ -133,7 +153,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
       const bTime = b.follow_up_at ? new Date(b.follow_up_at).getTime() : Number.POSITIVE_INFINITY;
       return aTime - bTime;
     });
-  }, [leads, priorityFilter, responsibleFilter, search, sortMode, statusFilter]);
+  }, [boardLeads, priorityFilter, responsibleFilter, search, sortMode, statusFilter]);
 
   const groupedLeads = useMemo(
     () =>
@@ -151,7 +171,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
   );
 
   const visibleLeadCount = groupedLeads.reduce((accumulator, group) => accumulator + group.items.length, 0);
-  const selectedLead = filteredAndSortedLeads.find((lead) => lead.id === selectedLeadId) ?? leads.find((lead) => lead.id === selectedLeadId) ?? null;
+  const selectedLead = filteredAndSortedLeads.find((lead) => lead.id === selectedLeadId) ?? boardLeads.find((lead) => lead.id === selectedLeadId) ?? null;
   const hasActiveFilters = search || statusFilter !== 'all' || priorityFilter !== 'all' || responsibleFilter !== 'all' || sortMode !== 'follow_up';
 
   function toggleGroup(status: string) {
@@ -169,6 +189,35 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
     setSortMode('follow_up');
   }
 
+  async function handleLeadStatusChange(leadId: string, nextStatus: LeadStatus) {
+    const previousLeads = boardLeads;
+    setStatusUpdateError(null);
+    setPendingLeadId(leadId);
+    setBoardLeads((current) =>
+      current.map((lead) =>
+        lead.id === leadId
+          ? {
+              ...lead,
+              status: nextStatus,
+              updated_at: new Date().toISOString(),
+              last_interaction_at: new Date().toISOString(),
+            }
+          : lead,
+      ),
+    );
+
+    const result = await updateLeadStatusAction(leadId, nextStatus);
+
+    if (!result.success) {
+      setBoardLeads(previousLeads);
+      setStatusUpdateError(result.error ?? 'No pudimos mover el lead al nuevo grupo.');
+    } else {
+      router.refresh();
+    }
+
+    setPendingLeadId(null);
+  }
+
   return (
     <div className="flex flex-col gap-5 pb-10">
       <section className="rounded-[2rem] border border-border bg-slate-950 p-5 text-white shadow-panel sm:p-6">
@@ -182,7 +231,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
             <div className="space-y-2">
               <h1 className="text-3xl font-semibold sm:text-4xl">Board de Leads para seguimiento diario</h1>
               <p className="max-w-3xl text-sm text-slate-300 sm:text-base">
-                Reorganicé Leads para que se sienta como una herramienta de operación continua: toolbar, grupos colapsables, tabla central por estado y apertura contextual del item.
+                Mantengo el enfoque tipo board, pero concentrado en una tabla agrupada realmente operativa, con más espacio útil y navegación clara.
               </p>
             </div>
           </div>
@@ -198,23 +247,28 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
         </div>
       </section>
 
+      {statusUpdateError ? (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="p-4 text-sm text-amber-800">{statusUpdateError}</CardContent>
+        </Card>
+      ) : null}
+
       <Card className="sticky top-4 z-20 border-border/80 shadow-sm">
         <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex flex-wrap items-center gap-2">
-              {leadViewOptions.map((view) => (
-                <Button key={view.value} type="button" variant={view.available ? 'default' : 'outline'} size="sm" disabled={!view.available}>
-                  {view.value === 'table' ? <TableProperties className="size-4" /> : null}
-                  {view.value === 'kanban' ? <KanbanSquare className="size-4" /> : null}
-                  {view.value === 'calendar' ? <CalendarDays className="size-4" /> : null}
-                  {view.value === 'cards' ? <LayoutGrid className="size-4" /> : null}
-                  {view.label}
-                  {!view.available ? <span className="text-[10px] uppercase tracking-[0.2em]">Próx.</span> : null}
-                </Button>
-              ))}
+              <Button type="button" size="sm">
+                <TableProperties className="size-4" />
+                Tabla
+              </Button>
+              <Badge variant="outline">Kanban no implementado</Badge>
             </div>
 
             <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setFiltersCollapsed((current) => !current)}>
+                <ListFilter className="size-4" />
+                {filtersCollapsed ? 'Mostrar filtros' : 'Ocultar filtros'}
+              </Button>
               <Button asChild>
                 <Link href="/leads/nuevo">
                   <Plus className="size-4" />
@@ -224,7 +278,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
             </div>
           </div>
 
-          <div className="grid gap-3 xl:grid-cols-[1.4fr_repeat(4,minmax(0,1fr))]">
+          <div className="grid gap-3 xl:grid-cols-[1.4fr_auto] xl:items-center">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -235,65 +289,68 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
-
-            <SelectControl
-              icon={<ListFilter className="size-4 text-muted-foreground" />}
-              label="Estado"
-              value={statusFilter}
-              onChange={(value) => setStatusFilter(value as typeof statusFilter)}
-              options={[{ value: 'all', label: 'Todos los estados' }, ...leadStatusOptions.map((option) => ({ value: option.value, label: option.label }))]}
-            />
-            <SelectControl
-              icon={<SlidersHorizontal className="size-4 text-muted-foreground" />}
-              label="Prioridad"
-              value={priorityFilter}
-              onChange={(value) => setPriorityFilter(value as typeof priorityFilter)}
-              options={[
-                { value: 'all', label: 'Todas las prioridades' },
-                { value: 'urgente', label: 'Urgente' },
-                { value: 'alta', label: 'Alta' },
-                { value: 'media', label: 'Media' },
-                { value: 'baja', label: 'Baja' },
-              ]}
-            />
-            <SelectControl
-              icon={<UserRound className="size-4 text-muted-foreground" />}
-              label="Responsable"
-              value={responsibleFilter}
-              onChange={setResponsibleFilter}
-              options={[
-                { value: 'all', label: 'Todos los responsables' },
-                { value: 'unassigned', label: 'Sin asignar' },
-                ...Object.values(profiles).map((profile) => ({ value: profile.id, label: profile.full_name ?? profile.id })),
-              ]}
-            />
-            <SelectControl
-              icon={<CalendarClock className="size-4 text-muted-foreground" />}
-              label="Orden"
-              value={sortMode}
-              onChange={(value) => setSortMode(value as SortMode)}
-              options={[
-                { value: 'follow_up', label: 'Seguimiento más cercano' },
-                { value: 'last_interaction', label: 'Última interacción' },
-                { value: 'priority', label: 'Mayor prioridad' },
-                { value: 'name', label: 'Nombre A-Z' },
-              ]}
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-3">
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <Badge variant="secondary">{visibleLeadCount} leads visibles</Badge>
               <Badge variant="outline">Agrupado por estado</Badge>
-              <Badge variant="outline">Vista preparada para Kanban / Calendario / Cards</Badge>
+              {hasActiveFilters ? <Badge variant="outline">Filtros activos</Badge> : null}
             </div>
-            {hasActiveFilters ? (
-              <Button type="button" variant="ghost" size="sm" onClick={resetBoardControls}>
-                <X className="size-4" />
-                Limpiar búsqueda y filtros
-              </Button>
-            ) : null}
           </div>
+
+          {!filtersCollapsed ? (
+            <div className="grid gap-3 border-t border-border/70 pt-4 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+              <SelectControl
+                icon={<ListFilter className="size-4 text-muted-foreground" />}
+                label="Estado"
+                value={statusFilter}
+                onChange={(value) => setStatusFilter(value as typeof statusFilter)}
+                options={[{ value: 'all', label: 'Todos los estados' }, ...leadStatusOptions.map((option) => ({ value: option.value, label: option.label }))]}
+              />
+              <SelectControl
+                icon={<SlidersHorizontal className="size-4 text-muted-foreground" />}
+                label="Prioridad"
+                value={priorityFilter}
+                onChange={(value) => setPriorityFilter(value as typeof priorityFilter)}
+                options={[
+                  { value: 'all', label: 'Todas las prioridades' },
+                  { value: 'urgente', label: 'Urgente' },
+                  { value: 'alta', label: 'Alta' },
+                  { value: 'media', label: 'Media' },
+                  { value: 'baja', label: 'Baja' },
+                ]}
+              />
+              <SelectControl
+                icon={<UserRound className="size-4 text-muted-foreground" />}
+                label="Responsable"
+                value={responsibleFilter}
+                onChange={setResponsibleFilter}
+                options={[
+                  { value: 'all', label: 'Todos los responsables' },
+                  { value: 'unassigned', label: 'Sin asignar' },
+                  ...Object.values(profiles).map((profile) => ({ value: profile.id, label: profile.full_name ?? profile.id })),
+                ]}
+              />
+              <SelectControl
+                icon={<CalendarClock className="size-4 text-muted-foreground" />}
+                label="Orden"
+                value={sortMode}
+                onChange={(value) => setSortMode(value as SortMode)}
+                options={[
+                  { value: 'follow_up', label: 'Seguimiento más cercano' },
+                  { value: 'last_interaction', label: 'Última interacción' },
+                  { value: 'priority', label: 'Mayor prioridad' },
+                  { value: 'name', label: 'Nombre A-Z' },
+                ]}
+              />
+              <div className="flex items-end">
+                {hasActiveFilters ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={resetBoardControls}>
+                    <X className="size-4" />
+                    Limpiar
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -335,19 +392,19 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                           <Badge variant="secondary">{group.items.length} items</Badge>
                           {group.overdueCount > 0 ? <Badge variant="warning">{group.overdueCount} vencidos</Badge> : null}
                         </div>
-                        <p className="text-sm text-muted-foreground">Grupo operativo por estado, listo para trabajo diario y futuras vistas del mismo dataset.</p>
+                        <p className="text-sm text-muted-foreground">Si cambias el estado, el lead se reubica automáticamente en el grupo correcto.</p>
                       </div>
                     </div>
                   </button>
 
                   {!isCollapsed ? (
                     <CardContent className="p-0">
-                      <div className="hidden lg:block">
+                      <div className="hidden xl:block">
                         <Table>
                           <TableHeader>
                             <TableRow>
                               <TableHead className="min-w-[220px]">Nombre</TableHead>
-                              <TableHead>Estado</TableHead>
+                              <TableHead className="min-w-[170px]">Estado</TableHead>
                               <TableHead>Prioridad</TableHead>
                               <TableHead className="min-w-[170px]">Responsable</TableHead>
                               <TableHead className="min-w-[150px]">Fecha tentativa</TableHead>
@@ -367,11 +424,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                               const followUpTone = getFollowUpTone(lead.follow_up_at);
 
                               return (
-                                <TableRow
-                                  key={lead.id}
-                                  className="cursor-pointer align-top"
-                                  onClick={() => setSelectedLeadId(lead.id)}
-                                >
+                                <TableRow key={lead.id} className="cursor-pointer align-top" onClick={() => setSelectedLeadId(lead.id)}>
                                   <TableCell>
                                     <div className="space-y-1">
                                       <button
@@ -388,7 +441,11 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                     </div>
                                   </TableCell>
                                   <TableCell>
-                                    <LeadStatusBadge status={lead.status} />
+                                    <InlineStatusSelect
+                                      value={lead.status}
+                                      disabled={pendingLeadId === lead.id}
+                                      onChange={(value) => handleLeadStatusChange(lead.id, value)}
+                                    />
                                   </TableCell>
                                   <TableCell>
                                     <LeadPriorityBadge priority={lead.priority} />
@@ -444,7 +501,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                         </Table>
                       </div>
 
-                      <div className="grid gap-4 p-4 lg:hidden">
+                      <div className="grid gap-4 p-4 xl:hidden">
                         {group.items.map((lead) => {
                           const detailHref = `/leads/${lead.id}` as Route;
                           const editHref = `/leads/${lead.id}/editar` as Route;
@@ -460,11 +517,14 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                     </button>
                                     <p className="text-sm text-muted-foreground">{getPrimaryContact(lead)}</p>
                                   </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    <LeadStatusBadge status={lead.status} />
-                                    <LeadPriorityBadge priority={lead.priority} />
-                                  </div>
+                                  <LeadPriorityBadge priority={lead.priority} />
                                 </div>
+
+                                <InlineStatusSelect
+                                  value={lead.status}
+                                  disabled={pendingLeadId === lead.id}
+                                  onChange={(value) => handleLeadStatusChange(lead.id, value)}
+                                />
 
                                 <div className="grid gap-3 rounded-2xl bg-muted/25 p-4 text-sm">
                                   <InfoLine label="Responsable" value={getResponsibleLabel(lead, profiles)} />
@@ -538,6 +598,25 @@ function SelectControl({
         ))}
       </select>
     </label>
+  );
+}
+
+function InlineStatusSelect({ value, disabled, onChange }: { value: LeadStatus; disabled?: boolean; onChange: (value: LeadStatus) => void }) {
+  return (
+    <div className="rounded-2xl border border-border bg-background px-3 py-2">
+      <select
+        className="w-full bg-transparent text-sm font-medium text-foreground focus:outline-none"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value as LeadStatus)}
+      >
+        {leadStatusOptions.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 

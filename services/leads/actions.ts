@@ -9,6 +9,11 @@ import { requireActiveSession } from '@/lib/auth/guards';
 import type { LeadFormState } from '@/services/leads/form-state';
 import type { LeadPriority, LeadStatus } from '@/types/leads';
 
+export interface UpdateLeadStatusResult {
+  success: boolean;
+  error?: string;
+}
+
 function parseOptionalString(value: FormDataEntryValue | null) {
   const normalized = String(value ?? '').trim();
   return normalized.length > 0 ? normalized : null;
@@ -103,6 +108,35 @@ async function insertActivity(leadId: string, actorId: string, summary: string, 
     details,
     created_by: actorId,
   });
+}
+
+export async function updateLeadStatusAction(leadId: string, nextStatus: LeadStatus): Promise<UpdateLeadStatusResult> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { success: false, error: 'No fue posible abrir la conexión con Supabase.' };
+  }
+
+  const { error } = await supabase
+    .from('leads')
+    .update({
+      status: nextStatus,
+      updated_by: session.user.id,
+      last_interaction_at: new Date().toISOString(),
+    })
+    .eq('id', leadId);
+
+  if (error) {
+    return { success: false, error: 'No pudimos actualizar el estado del lead.' };
+  }
+
+  await insertActivity(leadId, session.user.id, 'Estado actualizado', `Nuevo estado: ${nextStatus}`, 'estado');
+
+  revalidatePath('/leads');
+  revalidatePath(`/leads/${leadId}`);
+
+  return { success: true };
 }
 
 export async function createLeadAction(_previousState: LeadFormState, formData: FormData): Promise<LeadFormState> {

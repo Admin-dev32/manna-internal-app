@@ -1,4 +1,6 @@
-import { BellRing, Search, ShieldCheck } from 'lucide-react';
+'use client';
+
+import { BellRing, Menu, PanelLeftClose, PanelLeftOpen, Search, ShieldCheck } from 'lucide-react';
 
 import { LogoutButton } from '@/components/auth/logout-button';
 import { Badge } from '@/components/ui/badge';
@@ -10,13 +12,29 @@ import type { AppUser } from '@/types/auth';
 interface AppHeaderProps {
   user: AppUser;
   isDemoMode: boolean;
+  isSidebarCollapsed: boolean;
+  onOpenMobileNav: () => void;
+  onToggleSidebar: () => void;
 }
 
-export function AppHeader({ user, isDemoMode }: AppHeaderProps) {
+export function AppHeader({ user, isDemoMode, isSidebarCollapsed, onOpenMobileNav, onToggleSidebar }: AppHeaderProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur">
       <div className="page-shell flex-row items-center justify-between gap-4 pb-4 pt-4 lg:pb-4">
         <div className="flex min-w-0 flex-1 items-center gap-3">
+          <Button type="button" variant="outline" size="icon" className="lg:hidden" aria-label="Abrir navegación" onClick={onOpenMobileNav}>
+            <Menu className="size-5" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="hidden lg:inline-flex"
+            aria-label={isSidebarCollapsed ? 'Expandir sidebar' : 'Colapsar sidebar'}
+            onClick={onToggleSidebar}
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen className="size-5" /> : <PanelLeftClose className="size-5" />}
+          </Button>
           <div className="hidden size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary sm:flex">
             <ShieldCheck className="size-5" />
           </div>
