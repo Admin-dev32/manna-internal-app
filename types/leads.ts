@@ -5,6 +5,7 @@ export const LEAD_LANGUAGES = ['es', 'en'] as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 export type LeadPriority = (typeof LEAD_PRIORITIES)[number];
 export type LeadLanguage = (typeof LEAD_LANGUAGES)[number];
+export type LeadViewMode = 'table' | 'kanban' | 'calendar' | 'cards';
 
 export interface LeadRecord {
   id: string;

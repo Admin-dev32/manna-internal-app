@@ -1,4 +1,4 @@
-import type { LeadLanguage, LeadPriority, LeadStatus } from '@/types/leads';
+import type { LeadLanguage, LeadPriority, LeadStatus, LeadViewMode } from '@/types/leads';
 
 export const leadStatusOptions: Array<{ value: LeadStatus; label: string }> = [
   { value: 'nuevo', label: 'Nuevo' },
@@ -38,3 +38,10 @@ export const leadServiceOptions = ['Bar móvil', 'Mixología', 'Coffee bar', 'Mo
 
 export const leadStatusLabels = Object.fromEntries(leadStatusOptions.map((option) => [option.value, option.label])) as Record<LeadStatus, string>;
 export const leadPriorityLabels = Object.fromEntries(leadPriorityOptions.map((option) => [option.value, option.label])) as Record<LeadPriority, string>;
+
+export const leadViewOptions: Array<{ value: LeadViewMode; label: string; available: boolean }> = [
+  { value: 'table', label: 'Tabla', available: true },
+  { value: 'kanban', label: 'Kanban', available: false },
+  { value: 'calendar', label: 'Calendario', available: false },
+  { value: 'cards', label: 'Cards', available: false },
+];

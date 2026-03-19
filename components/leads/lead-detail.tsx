@@ -48,9 +48,7 @@ export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
             </Link>
           </Button>
           <Button asChild variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
-            <Link href="/leads">
-              Volver al listado
-            </Link>
+            <Link href="/leads">Volver al board</Link>
           </Button>
           <Button asChild variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
             <Link href="/leads/nuevo">
@@ -61,12 +59,12 @@ export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.9fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Información general</CardTitle>
-              <CardDescription>Datos base del prospecto y contexto operativo inicial.</CardDescription>
+              <CardTitle>Resumen del item</CardTitle>
+              <CardDescription>Este detalle conserva contexto del board y organiza el lead como unidad operativa.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <InfoItem icon={<Phone className="size-4" />} label="Teléfono" value={lead.phone ?? 'No capturado'} />
@@ -88,8 +86,8 @@ export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
 
           <Card>
             <CardHeader>
-              <CardTitle>Seguimiento</CardTitle>
-              <CardDescription>Reglas mínimas del módulo para no perder oportunidades.</CardDescription>
+              <CardTitle>Seguimiento y notas</CardTitle>
+              <CardDescription>Bloque operativo pensado para convivir con una futura sección de updates del item.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-2xl bg-background p-4">
@@ -100,6 +98,10 @@ export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Notas internas</p>
                 <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{lead.internal_notes ?? 'Aún no hay notas internas registradas.'}</p>
               </div>
+              <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">Actualizaciones internas · Próximamente</p>
+                <p className="mt-2">Queda preparada una zona para updates, notas colaborativas y menciones futuras sin romper el detalle actual.</p>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -107,8 +109,8 @@ export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Resumen operativo</CardTitle>
-              <CardDescription>Acceso rápido a los datos más consultados del lead.</CardDescription>
+              <CardTitle>Contexto del lead</CardTitle>
+              <CardDescription>Información breve y accionable para trabajo diario.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               <SummaryRow label="Estado" value={leadStatusLabels[lead.status]} />
@@ -121,8 +123,8 @@ export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
 
           <Card>
             <CardHeader>
-              <CardTitle>Historial básico</CardTitle>
-              <CardDescription>Bitácora inicial lista para crecer a seguimiento más profundo.</CardDescription>
+              <CardTitle>Actividad del item</CardTitle>
+              <CardDescription>Historial base del lead, listo para crecer a updates más ricas.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {activities.length === 0 ? (
