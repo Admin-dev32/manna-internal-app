@@ -6,10 +6,10 @@ import { MailCheck } from 'lucide-react';
 import { AuthFeedback } from '@/components/auth/auth-feedback';
 import { AuthSubmitButton } from '@/components/auth/auth-submit-button';
 import { Input } from '@/components/ui/input';
-import { initialAuthActionState, recoverAccessAction } from '@/services/auth/actions';
+import { recoverAccessAction } from '@/services/auth/actions';
 
 export function RecoveryForm() {
-  const [state, formAction] = useActionState(recoverAccessAction, initialAuthActionState);
+  const [state, formAction] = useActionState(recoverAccessAction, { status: 'idle' as const });
 
   return (
     <form className="space-y-4" action={formAction}>

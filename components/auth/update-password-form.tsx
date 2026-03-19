@@ -7,10 +7,10 @@ import { KeySquare } from 'lucide-react';
 import { AuthFeedback } from '@/components/auth/auth-feedback';
 import { AuthSubmitButton } from '@/components/auth/auth-submit-button';
 import { Input } from '@/components/ui/input';
-import { initialAuthActionState, updatePasswordAction } from '@/services/auth/actions';
+import { updatePasswordAction } from '@/services/auth/actions';
 
 export function UpdatePasswordForm() {
-  const [state, formAction] = useActionState(updatePasswordAction, initialAuthActionState);
+  const [state, formAction] = useActionState(updatePasswordAction, { status: 'idle' as const });
 
   return (
     <form className="space-y-4" action={formAction}>
