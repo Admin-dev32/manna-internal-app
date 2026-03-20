@@ -51,7 +51,7 @@ export function MobileNav({ user, open, onClose }: MobileNavProps) {
         </div>
 
         <div className="mt-4 rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-          Abre Leads y el resto de módulos desde aquí sin depender de URLs manuales.
+          Accede aquí a las áreas realmente operativas. Clientes y reservas iniciales viven dentro del flujo de cotizaciones aceptadas.
         </div>
 
         <nav className="mt-5 flex flex-1 flex-col gap-2 overflow-y-auto pb-4" aria-label="Navegación móvil">

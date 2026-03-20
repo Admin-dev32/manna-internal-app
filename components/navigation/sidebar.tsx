@@ -19,8 +19,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ user, collapsed, onToggleCollapse }: SidebarProps) {
-  const leadsItem = navigationItems.find((item) => item.href === '/leads');
-  const availableItems = navigationItems.filter((item) => item.href !== '/leads' && hasPermission(user.rol, item.permission));
+  const availableItems = navigationItems.filter((item) => hasPermission(user.rol, item.permission));
 
   return (
     <aside
@@ -62,18 +61,20 @@ export function Sidebar({ user, collapsed, onToggleCollapse }: SidebarProps) {
       </div>
 
       <div className={cn('mt-5 flex items-center', collapsed ? 'justify-center px-1' : 'justify-between px-2')}>
-        {!collapsed ? <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Navegación</p> : null}
+        {!collapsed ? <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Áreas activas</p> : null}
       </div>
 
       <nav className={cn('mt-4 flex flex-1 flex-col gap-2 overflow-y-auto', collapsed ? 'px-1' : 'pr-1')} aria-label="Navegación principal">
-        {leadsItem ? <NavLink {...leadsItem} collapsed={collapsed} /> : null}
-
-        {availableItems.length > 0 ? <div className={cn('my-2 border-t border-border/70', collapsed ? 'mx-2' : 'mx-1')} /> : null}
-
         {availableItems.map((item) => (
           <NavLink key={item.href} {...item} collapsed={collapsed} />
         ))}
       </nav>
+
+      {!collapsed ? (
+        <div className="mt-4 rounded-3xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+          Clientes y reservas iniciales ya existen, pero hoy se operan desde <span className="font-medium text-foreground">Cotizaciones</span> y sus flujos derivados para no exponer accesos placeholder.
+        </div>
+      ) : null}
     </aside>
   );
 }

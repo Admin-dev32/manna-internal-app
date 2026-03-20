@@ -43,21 +43,23 @@ interface NavLinkProps {
   label: string;
   description?: string;
   icon: NavigationIconKey;
+  matchPrefixes?: string[];
   compact?: boolean;
   collapsed?: boolean;
   onNavigate?: () => void;
 }
 
-function isRouteActive(pathname: string, href: Route) {
+function isRouteActive(pathname: string, href: Route, matchPrefixes: string[] = []) {
   if (pathname === href) return true;
   if (href === '/dashboard') return false;
 
-  return pathname.startsWith(`${href}/`);
+  const prefixes = matchPrefixes.length > 0 ? matchPrefixes : [href];
+  return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-export function NavLink({ href, label, description, icon, compact = false, collapsed = false, onNavigate }: NavLinkProps) {
+export function NavLink({ href, label, description, icon, matchPrefixes, compact = false, collapsed = false, onNavigate }: NavLinkProps) {
   const pathname = usePathname();
-  const isActive = isRouteActive(pathname, href);
+  const isActive = isRouteActive(pathname, href, matchPrefixes);
   const Icon = iconMap[icon];
 
   return (
