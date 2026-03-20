@@ -4,15 +4,20 @@ import Link from 'next/link';
 import { Clock3, Mail, MapPin, PencilLine, Phone, Plus, UserRound } from 'lucide-react';
 
 import { LeadPriorityBadge, LeadStatusBadge } from '@/components/leads/lead-status-badge';
+import { LeadQuotesPanel } from '@/components/quotes/lead-quotes-panel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { leadPriorityLabels, leadStatusLabels } from '@/config/leads';
+import type { ClientRecord } from '@/types/clients';
 import type { LeadActivityRecord, LeadProfileOption, LeadRecord } from '@/types/leads';
+import type { QuoteRecord } from '@/types/quotes';
 
 interface LeadDetailProps {
   lead: LeadRecord;
   activities: LeadActivityRecord[];
   profiles: Record<string, LeadProfileOption>;
+  quotes: QuoteRecord[];
+  client: ClientRecord | null;
 }
 
 function formatDate(value: string | null) {
@@ -20,7 +25,7 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 }
 
-export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
+export function LeadDetail({ lead, activities, profiles, quotes, client }: LeadDetailProps) {
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-5 rounded-[2rem] border border-border bg-slate-950 p-6 text-white shadow-panel sm:p-8">
@@ -45,6 +50,12 @@ export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
             <Link href={`/leads/${lead.id}/editar` as Route}>
               <PencilLine className="size-4" />
               Editar lead
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+            <Link href={`/leads/${lead.id}/cotizaciones/nueva` as Route}>
+              <Plus className="size-4" />
+              Nueva cotización
             </Link>
           </Button>
           <Button asChild variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
@@ -107,6 +118,25 @@ export function LeadDetail({ lead, activities, profiles }: LeadDetailProps) {
         </div>
 
         <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Resultado comercial</CardTitle>
+              <CardDescription>Visibilidad rápida del avance entre lead, cotización y cliente.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <SummaryRow label="Estado del lead" value={leadStatusLabels[lead.status]} />
+              <SummaryRow label="Cotizaciones ligadas" value={quotes.length.toString()} />
+              <SummaryRow label="Cliente creado" value={client ? 'Sí, conversión completada' : 'Aún no'} />
+              {client ? (
+                <Button asChild size="sm">
+                  <Link href={`/clientes/${client.id}` as Route}>Abrir cliente</Link>
+                </Button>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <LeadQuotesPanel leadId={lead.id} quotes={quotes} />
+
           <Card>
             <CardHeader>
               <CardTitle>Contexto del lead</CardTitle>

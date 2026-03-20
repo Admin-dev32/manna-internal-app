@@ -10,7 +10,6 @@ import {
   CalendarClock,
   ChevronDown,
   ChevronRight,
-  Clock3,
   Eye,
   ListFilter,
   PencilLine,
@@ -28,10 +27,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { leadStatusOptions } from '@/config/leads';
-import { updateLeadStatusAction } from '@/services/leads/actions';
+import { leadPriorityOptions, leadStatusOptions } from '@/config/leads';
+import { updateLeadInlineAction, updateLeadStatusAction } from '@/services/leads/actions';
 import { cn } from '@/lib/utils';
-import type { LeadProfileOption, LeadRecord, LeadStatus } from '@/types/leads';
+import type { LeadPriority, LeadProfileOption, LeadRecord, LeadStatus } from '@/types/leads';
 
 interface LeadsListProps {
   leads: LeadRecord[];
@@ -78,6 +77,63 @@ function getFollowUpTone(value: string | null) {
   if (diff <= 1000 * 60 * 60 * 24) return { label: 'Hoy', variant: 'warning' as const };
   if (diff <= 1000 * 60 * 60 * 24 * 3) return { label: 'Próximo', variant: 'secondary' as const };
   return { label: 'Programado', variant: 'outline' as const };
+}
+
+function getTentativeDateTone(value: string | null) {
+  if (!value) return null;
+
+  const eventDate = new Date(value);
+  if (Number.isNaN(eventDate.getTime())) return null;
+
+  const diff = eventDate.getTime() - Date.now();
+  if (diff < 0) return null;
+  if (diff <= 1000 * 60 * 60 * 24 * 7) {
+    return { label: 'Evento cercano', variant: 'secondary' as const };
+  }
+
+  return null;
+}
+
+function toDateTimeLocalValue(value: string | null) {
+  if (!value) return '';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function normalizeInlineDate(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return null;
+
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function getLeadSignals(lead: LeadRecord) {
+  const followUpTone = getFollowUpTone(lead.follow_up_at);
+  const tentativeDateTone = getTentativeDateTone(lead.tentative_event_date);
+  const signals: Array<{ label: string; variant: 'default' | 'secondary' | 'outline' | 'success' | 'warning'; className?: string }> = [];
+
+  if (lead.priority === 'urgente') {
+    signals.push({ label: 'Urgente', variant: 'warning', className: 'bg-rose-100 text-rose-700' });
+  }
+
+  if (followUpTone.label === 'Vencido') {
+    signals.push({ label: 'Seguimiento vencido', variant: 'warning' });
+  } else if (followUpTone.label === 'Hoy') {
+    signals.push({ label: 'Seguimiento hoy', variant: 'warning' });
+  } else if (!lead.follow_up_at && !['ganado', 'perdido'].includes(lead.status)) {
+    signals.push({ label: 'Sin seguimiento', variant: 'outline' });
+  }
+
+  if (tentativeDateTone) {
+    signals.push({ label: tentativeDateTone.label, variant: tentativeDateTone.variant });
+  }
+
+  return signals;
 }
 
 function matchesSearch(lead: LeadRecord, term: string) {
@@ -189,28 +245,56 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
     setSortMode('follow_up');
   }
 
-  async function handleLeadStatusChange(leadId: string, nextStatus: LeadStatus) {
-    const previousLeads = boardLeads;
-    setStatusUpdateError(null);
-    setPendingLeadId(leadId);
+  function applyLocalLeadPatch(leadId: string, patch: Partial<LeadRecord>) {
     setBoardLeads((current) =>
       current.map((lead) =>
         lead.id === leadId
           ? {
               ...lead,
-              status: nextStatus,
+              ...patch,
               updated_at: new Date().toISOString(),
               last_interaction_at: new Date().toISOString(),
             }
           : lead,
       ),
     );
+  }
+
+  async function handleLeadStatusChange(leadId: string, nextStatus: LeadStatus) {
+    const previousLeads = boardLeads;
+    setStatusUpdateError(null);
+    setPendingLeadId(leadId);
+    applyLocalLeadPatch(leadId, { status: nextStatus });
 
     const result = await updateLeadStatusAction(leadId, nextStatus);
 
     if (!result.success) {
       setBoardLeads(previousLeads);
       setStatusUpdateError(result.error ?? 'No pudimos mover el lead al nuevo grupo.');
+    } else {
+      router.refresh();
+    }
+
+    setPendingLeadId(null);
+  }
+
+  async function handleInlineLeadUpdate(leadId: string, patch: Partial<LeadRecord>) {
+    const previousLeads = boardLeads;
+    setStatusUpdateError(null);
+    setPendingLeadId(leadId);
+    applyLocalLeadPatch(leadId, patch);
+
+    const result = await updateLeadInlineAction(leadId, {
+      status: patch.status,
+      priority: patch.priority,
+      responsibleProfileId: Object.prototype.hasOwnProperty.call(patch, 'responsible_profile_id') ? (patch.responsible_profile_id ?? null) : undefined,
+      followUpAt: Object.prototype.hasOwnProperty.call(patch, 'follow_up_at') ? patch.follow_up_at ?? null : undefined,
+      nextAction: patch.next_action,
+    });
+
+    if (!result.success) {
+      setBoardLeads(previousLeads);
+      setStatusUpdateError(result.error ?? 'No pudimos guardar el cambio rápido del lead.');
     } else {
       router.refresh();
     }
@@ -422,11 +506,21 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                               const detailHref = `/leads/${lead.id}` as Route;
                               const editHref = `/leads/${lead.id}/editar` as Route;
                               const followUpTone = getFollowUpTone(lead.follow_up_at);
+                              const tentativeDateTone = getTentativeDateTone(lead.tentative_event_date);
+                              const leadSignals = getLeadSignals(lead);
 
                               return (
-                                <TableRow key={lead.id} className="cursor-pointer align-top" onClick={() => setSelectedLeadId(lead.id)}>
+                                <TableRow
+                                  key={lead.id}
+                                  className={cn(
+                                    'cursor-pointer align-top',
+                                    followUpTone.label === 'Vencido' && 'bg-amber-50/60',
+                                    lead.priority === 'urgente' && 'border-l-2 border-l-rose-300',
+                                  )}
+                                  onClick={() => setSelectedLeadId(lead.id)}
+                                >
                                   <TableCell>
-                                    <div className="space-y-1">
+                                    <div className="space-y-2">
                                       <button
                                         type="button"
                                         className="text-left font-semibold text-foreground transition-colors hover:text-primary"
@@ -438,6 +532,13 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                         {lead.full_name}
                                       </button>
                                       <p className="text-xs text-muted-foreground">{getPrimaryContact(lead)}</p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {leadSignals.map((signal) => (
+                                          <Badge key={`${lead.id}-${signal.label}`} variant={signal.variant} className={signal.className}>
+                                            {signal.label}
+                                          </Badge>
+                                        ))}
+                                      </div>
                                     </div>
                                   </TableCell>
                                   <TableCell>
@@ -448,20 +549,42 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                     />
                                   </TableCell>
                                   <TableCell>
-                                    <LeadPriorityBadge priority={lead.priority} />
+                                    <InlinePrioritySelect
+                                      value={lead.priority}
+                                      disabled={pendingLeadId === lead.id}
+                                      onChange={(value) => handleInlineLeadUpdate(lead.id, { priority: value })}
+                                    />
                                   </TableCell>
                                   <TableCell>
-                                    <ResponsiblePill label={getResponsibleLabel(lead, profiles)} />
+                                    <InlineResponsibleSelect
+                                      value={lead.responsible_profile_id}
+                                      profiles={profiles}
+                                      disabled={pendingLeadId === lead.id}
+                                      onChange={(value) => handleInlineLeadUpdate(lead.id, { responsible_profile_id: value })}
+                                    />
                                   </TableCell>
-                                  <TableCell className="text-sm text-muted-foreground">{lead.tentative_event_date ? formatDate(lead.tentative_event_date, true) : 'Sin definir'}</TableCell>
                                   <TableCell>
                                     <div className="space-y-1">
-                                      <p className="text-sm text-foreground">{lead.follow_up_at ? formatDate(lead.follow_up_at) : 'Sin seguimiento'}</p>
+                                      <p className="text-sm text-muted-foreground">{lead.tentative_event_date ? formatDate(lead.tentative_event_date, true) : 'Sin definir'}</p>
+                                      {tentativeDateTone ? <Badge variant={tentativeDateTone.variant}>{tentativeDateTone.label}</Badge> : null}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
+                                      <InlineFollowUpInput
+                                        value={lead.follow_up_at}
+                                        disabled={pendingLeadId === lead.id}
+                                        onSave={(value) => handleInlineLeadUpdate(lead.id, { follow_up_at: value })}
+                                      />
                                       <Badge variant={followUpTone.variant}>{followUpTone.label}</Badge>
                                     </div>
                                   </TableCell>
                                   <TableCell>
-                                    <p className="line-clamp-3 text-sm text-foreground">{lead.next_action}</p>
+                                    <InlineNextActionInput
+                                      value={lead.next_action}
+                                      disabled={pendingLeadId === lead.id}
+                                      onSave={(value) => handleInlineLeadUpdate(lead.id, { next_action: value })}
+                                    />
                                   </TableCell>
                                   <TableCell className="text-sm text-muted-foreground">{lead.source_platform ?? 'Sin definir'}</TableCell>
                                   <TableCell className="text-sm text-muted-foreground">{lead.service_interest ?? 'Sin definir'}</TableCell>
@@ -516,8 +639,19 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                       {lead.full_name}
                                     </button>
                                     <p className="text-sm text-muted-foreground">{getPrimaryContact(lead)}</p>
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                      {getLeadSignals(lead).map((signal) => (
+                                        <Badge key={`${lead.id}-mobile-${signal.label}`} variant={signal.variant} className={signal.className}>
+                                          {signal.label}
+                                        </Badge>
+                                      ))}
+                                    </div>
                                   </div>
-                                  <LeadPriorityBadge priority={lead.priority} />
+                                  <InlinePrioritySelect
+                                    value={lead.priority}
+                                    disabled={pendingLeadId === lead.id}
+                                    onChange={(value) => handleInlineLeadUpdate(lead.id, { priority: value })}
+                                  />
                                 </div>
 
                                 <InlineStatusSelect
@@ -527,9 +661,32 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                 />
 
                                 <div className="grid gap-3 rounded-2xl bg-muted/25 p-4 text-sm">
-                                  <InfoLine label="Responsable" value={getResponsibleLabel(lead, profiles)} />
-                                  <InfoLine label="Seguimiento" value={lead.follow_up_at ? formatDate(lead.follow_up_at) : 'Sin seguimiento'} badge={<Badge variant={followUpTone.variant}>{followUpTone.label}</Badge>} />
-                                  <InfoLine label="Próxima acción" value={lead.next_action} />
+                                  <InfoLine
+                                    label="Responsable"
+                                    value={
+                                      <InlineResponsibleSelect
+                                        value={lead.responsible_profile_id}
+                                        profiles={profiles}
+                                        disabled={pendingLeadId === lead.id}
+                                        onChange={(value) => handleInlineLeadUpdate(lead.id, { responsible_profile_id: value })}
+                                      />
+                                    }
+                                  />
+                                  <InfoLine
+                                    label="Seguimiento"
+                                    value={
+                                      <InlineFollowUpInput
+                                        value={lead.follow_up_at}
+                                        disabled={pendingLeadId === lead.id}
+                                        onSave={(value) => handleInlineLeadUpdate(lead.id, { follow_up_at: value })}
+                                      />
+                                    }
+                                    badge={<Badge variant={followUpTone.variant}>{followUpTone.label}</Badge>}
+                                  />
+                                  <InfoLine
+                                    label="Próxima acción"
+                                    value={<InlineNextActionInput value={lead.next_action} disabled={pendingLeadId === lead.id} onSave={(value) => handleInlineLeadUpdate(lead.id, { next_action: value })} />}
+                                  />
                                   <InfoLine label="Origen" value={lead.source_platform ?? 'Sin definir'} />
                                   <InfoLine label="Servicio" value={lead.service_interest ?? 'Sin definir'} />
                                 </div>
@@ -603,7 +760,7 @@ function SelectControl({
 
 function InlineStatusSelect({ value, disabled, onChange }: { value: LeadStatus; disabled?: boolean; onChange: (value: LeadStatus) => void }) {
   return (
-    <div className="rounded-2xl border border-border bg-background px-3 py-2">
+    <div className="rounded-2xl border border-border bg-background px-3 py-2" onClick={(event) => event.stopPropagation()}>
       <select
         className="w-full bg-transparent text-sm font-medium text-foreground focus:outline-none"
         value={value}
@@ -620,23 +777,128 @@ function InlineStatusSelect({ value, disabled, onChange }: { value: LeadStatus; 
   );
 }
 
-function ResponsiblePill({ label }: { label: string }) {
+function InlinePrioritySelect({ value, disabled, onChange }: { value: LeadPriority; disabled?: boolean; onChange: (value: LeadPriority) => void }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-full bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-      <UserRound className="size-3.5 text-primary" />
-      {label}
+    <div className="rounded-2xl border border-border bg-background px-3 py-2" onClick={(event) => event.stopPropagation()}>
+      <select
+        className="w-full bg-transparent text-sm font-medium text-foreground focus:outline-none"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value as LeadPriority)}
+      >
+        {leadPriorityOptions.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
 
-function InfoLine({ label, value, badge }: { label: string; value: string; badge?: ReactNode }) {
+function InlineResponsibleSelect({
+  value,
+  profiles,
+  disabled,
+  onChange,
+}: {
+  value: string | null;
+  profiles: Record<string, LeadProfileOption>;
+  disabled?: boolean;
+  onChange: (value: string | null) => void;
+}) {
+  const orderedProfiles = Object.values(profiles).sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? '', 'es'));
+
+  return (
+    <div className="rounded-2xl border border-border bg-background px-3 py-2" onClick={(event) => event.stopPropagation()}>
+      <select
+        className="w-full bg-transparent text-sm font-medium text-foreground focus:outline-none"
+        value={value ?? ''}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value || null)}
+      >
+        <option value="">Sin asignar</option>
+        {orderedProfiles.map((profile) => (
+          <option key={profile.id} value={profile.id}>
+            {profile.full_name ?? profile.id}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function InlineFollowUpInput({ value, disabled, onSave }: { value: string | null; disabled?: boolean; onSave: (value: string | null) => Promise<void> | void }) {
+  const [draftValue, setDraftValue] = useState(() => toDateTimeLocalValue(value));
+
+  useEffect(() => {
+    setDraftValue(toDateTimeLocalValue(value));
+  }, [value]);
+
+  async function commit() {
+    const normalized = normalizeInlineDate(draftValue);
+    const currentTime = value ? new Date(value).getTime() : null;
+    const nextTime = normalized ? new Date(normalized).getTime() : null;
+    if (currentTime === nextTime) return;
+    await onSave(normalized);
+  }
+
+  return (
+    <Input
+      type="datetime-local"
+      value={draftValue}
+      disabled={disabled}
+      className="h-10 bg-background"
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => setDraftValue(event.target.value)}
+      onBlur={() => void commit()}
+    />
+  );
+}
+
+function InlineNextActionInput({ value, disabled, onSave }: { value: string; disabled?: boolean; onSave: (value: string) => Promise<void> | void }) {
+  const [draftValue, setDraftValue] = useState(value);
+
+  useEffect(() => {
+    setDraftValue(value);
+  }, [value]);
+
+  async function commit() {
+    const normalized = draftValue.trim();
+    if (!normalized || normalized === value) {
+      setDraftValue(value);
+      return;
+    }
+
+    await onSave(normalized);
+  }
+
+  return (
+    <Input
+      value={draftValue}
+      disabled={disabled}
+      className="h-10 bg-background text-sm"
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => setDraftValue(event.target.value)}
+      onBlur={() => void commit()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          void commit();
+        }
+      }}
+    />
+  );
+}
+
+function InfoLine({ label, value, badge }: { label: string; value: ReactNode; badge?: ReactNode }) {
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">{label}</p>
         {badge}
       </div>
-      <p className="text-sm text-foreground">{value}</p>
+      {typeof value === 'string' ? <p className="text-sm text-foreground">{value}</p> : value}
     </div>
   );
 }
