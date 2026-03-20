@@ -48,13 +48,15 @@ export function AppShell({ session, children }: AppShellProps) {
             onOpenMobileNav={() => setIsMobileNavOpen(true)}
             onToggleSidebar={() => setIsSidebarCollapsed((current) => !current)}
           />
-          <main className="page-shell flex-1 pt-6">
-            {session.isDemoMode ? (
-              <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                Estás viendo la app en modo preparación. Configura Supabase Auth para activar el acceso real en {APP_CONFIG.subdomainReadyHost}.
-              </div>
-            ) : null}
-            {children}
+          <main className="flex-1 px-4 pb-10 pt-5 sm:px-6 lg:px-8 lg:pt-6">
+            <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+              {session.isDemoMode ? (
+                <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Estás viendo la app en modo preparación. Configura Supabase Auth para activar el acceso real en {APP_CONFIG.subdomainReadyHost}.
+                </div>
+              ) : null}
+              {children}
+            </div>
           </main>
         </div>
       </div>

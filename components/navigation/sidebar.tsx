@@ -24,26 +24,50 @@ export function Sidebar({ user, collapsed, onToggleCollapse }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'hidden h-screen shrink-0 border-r border-border bg-white/80 px-4 py-5 backdrop-blur transition-[width,padding] duration-200 lg:sticky lg:top-0 lg:flex lg:flex-col',
-        collapsed ? 'w-24 px-3' : 'w-72',
+        'hidden h-screen shrink-0 border-r border-border/80 bg-white/88 backdrop-blur transition-[width,padding] duration-200 lg:sticky lg:top-0 lg:flex lg:flex-col',
+        collapsed ? 'w-24 px-3 py-4' : 'w-80 px-4 py-5',
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <Link href="/dashboard" className={cn('rounded-3xl border border-border bg-background px-4 py-4 transition-all', collapsed && 'px-3 py-3')}>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary">MSB</p>
+      <div className={cn('flex items-center gap-3 rounded-[28px] border border-border/80 bg-background/95 shadow-sm', collapsed ? 'flex-col px-2 py-3' : 'px-4 py-4')}>
+        <Link
+          href="/dashboard"
+          aria-label="Ir al dashboard"
+          className={cn(
+            'group flex min-w-0 flex-1 items-center rounded-3xl transition-colors hover:bg-accent/60',
+            collapsed ? 'justify-center px-0 py-1' : 'gap-3 px-1 py-1',
+          )}
+        >
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary/12 text-sm font-semibold uppercase tracking-[0.3em] text-primary shadow-sm">
+            MSB
+          </span>
           {!collapsed ? (
-            <>
-              <h1 className="mt-2 text-xl font-semibold">App interna</h1>
-              <p className="mt-1 text-sm text-muted-foreground">{APP_CONFIG.description}</p>
-            </>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold text-foreground">App interna</span>
+              <span className="mt-0.5 block truncate text-xs text-muted-foreground">{APP_CONFIG.description}</span>
+            </span>
           ) : null}
         </Link>
-        <Button type="button" variant="outline" size="icon" aria-label={collapsed ? 'Expandir sidebar' : 'Colapsar sidebar'} onClick={onToggleCollapse}>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="shrink-0"
+          aria-label={collapsed ? 'Expandir sidebar' : 'Colapsar sidebar'}
+          onClick={onToggleCollapse}
+        >
           {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
         </Button>
       </div>
 
-      <nav className="mt-6 flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
+      <div className={cn('mt-5 flex items-center', collapsed ? 'justify-center px-1' : 'justify-between px-2')}>
+        {!collapsed ? <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Navegación</p> : null}
+        <span className={cn('rounded-full bg-primary/8 text-primary', collapsed ? 'px-2 py-1 text-[10px] font-semibold' : 'px-2.5 py-1 text-[11px] font-medium')}>
+          Leads disponible
+        </span>
+      </div>
+
+      <nav className={cn('mt-4 flex flex-1 flex-col gap-2 overflow-y-auto', collapsed ? 'px-1' : 'pr-1')} aria-label="Navegación principal">
         {availableItems.map((item) => (
           <NavLink key={item.href} {...item} collapsed={collapsed} />
         ))}
