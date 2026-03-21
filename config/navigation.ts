@@ -65,3 +65,5 @@ export const navigationItems: NavigationItem[] = [
     matchPrefixes: ['/reservas'],
   },
 ];
+
+export const mainNavigationItems = navigationItems;

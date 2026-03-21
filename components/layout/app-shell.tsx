@@ -39,7 +39,7 @@ export function AppShell({ session, children }: AppShellProps) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto flex min-h-screen w-full max-w-[1600px]">
-        <Sidebar user={session.user} collapsed={isSidebarCollapsed} onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)} />
+        <Sidebar collapsed={isSidebarCollapsed} onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)} />
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">
           <AppHeader
             user={session.user}
@@ -60,7 +60,7 @@ export function AppShell({ session, children }: AppShellProps) {
           </main>
         </div>
       </div>
-      <MobileNav user={session.user} open={isMobileNavOpen} onClose={() => setIsMobileNavOpen(false)} />
+      <MobileNav open={isMobileNavOpen} onClose={() => setIsMobileNavOpen(false)} />
     </div>
   );
 }

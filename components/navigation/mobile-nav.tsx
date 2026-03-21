@@ -5,22 +5,17 @@ import { X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { APP_CONFIG } from '@/config/app';
-import { navigationItems } from '@/config/navigation';
-import { hasPermission } from '@/lib/auth/permissions';
+import { mainNavigationItems } from '@/config/navigation';
 import { cn } from '@/lib/utils';
-import type { AppUser } from '@/types/auth';
 
 import { NavLink } from './nav-link';
 
 interface MobileNavProps {
-  user: AppUser;
   open: boolean;
   onClose: () => void;
 }
 
-export function MobileNav({ user, open, onClose }: MobileNavProps) {
-  const items = navigationItems.filter((item) => hasPermission(user.rol, item.permission));
-
+export function MobileNav({ open, onClose }: MobileNavProps) {
   return (
     <>
       <button
@@ -55,7 +50,7 @@ export function MobileNav({ user, open, onClose }: MobileNavProps) {
         </div>
 
         <nav className="mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-4" aria-label="Navegación móvil">
-          {items.map((item) => (
+          {mainNavigationItems.map((item) => (
             <NavLink key={item.href} {...item} onNavigate={onClose} />
           ))}
         </nav>
