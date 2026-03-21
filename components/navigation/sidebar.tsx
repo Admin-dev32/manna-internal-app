@@ -6,16 +6,21 @@ import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { APP_CONFIG } from '@/config/app';
 import { mainNavigationItems } from '@/config/navigation';
+import { hasPermission } from '@/lib/auth/permissions';
 import { cn } from '@/lib/utils';
+import type { AppUser } from '@/types/auth';
 
 import { NavLink } from './nav-link';
 
 interface SidebarProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
+  user: AppUser;
 }
 
-export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
+export function Sidebar({ collapsed, onToggleCollapse, user }: SidebarProps) {
+  const visibleNavigationItems = mainNavigationItems.filter((item) => hasPermission(user, item.permission));
+
   return (
     <aside
       className={cn(
@@ -60,7 +65,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
       </div>
 
       <nav className={cn('mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-3', collapsed ? 'px-1' : 'pr-1')} aria-label="Navegación principal">
-        {mainNavigationItems.map((item) => (
+        {visibleNavigationItems.map((item) => (
           <NavLink key={item.href} {...item} description={undefined} collapsed={collapsed} />
         ))}
       </nav>

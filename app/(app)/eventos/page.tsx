@@ -1,5 +1,8 @@
-import { ModulePage } from '@/features/module-shell/module-page';
+import { EventsList } from '@/components/events/events-list';
+import { getEventsOverviewPageData } from '@/services/events/queries';
 
-export default function EventosPage() {
-  return <ModulePage moduleKey="eventos" />;
+export default async function EventosPage() {
+  const { events, clients, quotes } = await getEventsOverviewPageData();
+
+  return <EventsList events={events} clients={clients} quotes={quotes} />;
 }

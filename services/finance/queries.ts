@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { calculateFinancialSummary } from '@/lib/finance/calculations';
 import type {
   EditableFinancialExpense,
   FinancialSettingsExpenseRecord,
@@ -7,6 +8,7 @@ import type {
   QuoteFinancialSheetDraft,
   QuoteFinancialSheetRecord,
 } from '@/types/finance';
+import type { EventFinanceSnapshot } from '@/types/events';
 import type { QuoteRecord } from '@/types/quotes';
 
 function mapSettingsExpenseToEditable(expense: FinancialSettingsExpenseRecord | QuoteFinancialExpenseRecord): EditableFinancialExpense {
@@ -108,5 +110,40 @@ export async function getQuoteFinancialSheetDraft(quote: QuoteRecord): Promise<Q
       taxReservePercentage: settingsResult.settings?.default_tax_reserve_percentage ?? null,
       salesCommissionPercentage: settingsResult.settings?.default_sales_commission_percentage ?? null,
     },
+  };
+}
+
+export async function getQuoteFinancialSummary(quoteId: string): Promise<EventFinanceSnapshot | null> {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data: sheetData } = await supabase
+    .from('quote_financial_sheets')
+    .select('*')
+    .eq('quote_id', quoteId)
+    .maybeSingle();
+
+  const sheet = (sheetData as QuoteFinancialSheetRecord | null) ?? null;
+  if (!sheet) return null;
+
+  const { data: expenseData } = await supabase
+    .from('quote_financial_expenses')
+    .select('*')
+    .eq('sheet_id', sheet.id)
+    .order('sort_order', { ascending: true });
+
+  const summary = calculateFinancialSummary({
+    grossRevenue: sheet.gross_revenue,
+    taxReservePercentage: sheet.tax_reserve_percentage,
+    salesCommissionPercentage: sheet.sales_commission_percentage,
+    expenses: ((expenseData ?? []) as QuoteFinancialExpenseRecord[]).map(mapSettingsExpenseToEditable),
+  });
+
+  return {
+    grossRevenue: summary.grossRevenue,
+    taxReserve: summary.taxReserve,
+    salesCommission: summary.salesCommission,
+    totalExtraExpenses: summary.totalExtraExpenses,
+    netProfit: summary.netProfit,
   };
 }

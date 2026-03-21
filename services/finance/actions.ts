@@ -134,7 +134,7 @@ export async function saveQuoteFinancialSheetAction(quoteId: string, formData: F
   const session = await requireActiveSession();
   const supabase = await createSupabaseServerClient();
 
-  if (!supabase || !session.user || !hasPermission(session.user.rol, 'finance.view')) {
+  if (!supabase || !session.user || !hasPermission(session.user, 'finance.view')) {
     return;
   }
 

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-import { hasPermission } from '@/lib/auth/permissions';
+import { hasAnyPermission, hasPermission } from '@/lib/auth/permissions';
 import { canAccessRole } from '@/lib/auth/roles';
 import { isSupabaseAuthEnabled } from '@/lib/supabase/env';
 import { getSessionContext } from '@/services/auth/session';
@@ -39,7 +39,17 @@ export async function requireRole(allowedRoles: UserRole[]): Promise<SessionCont
 export async function requirePermission(permission: PermissionKey): Promise<SessionContext> {
   const session = await requireActiveSession();
 
-  if (session.user && !hasPermission(session.user.rol, permission)) {
+  if (session.user && !hasPermission(session.user, permission)) {
+    redirect('/dashboard');
+  }
+
+  return session;
+}
+
+export async function requireAnyPermission(permissions: PermissionKey[]): Promise<SessionContext> {
+  const session = await requireActiveSession();
+
+  if (session.user && !hasAnyPermission(session.user, permissions)) {
     redirect('/dashboard');
   }
 

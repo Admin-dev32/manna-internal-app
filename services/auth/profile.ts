@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { ProfileRecord } from '@/types/auth';
+import type { CurrentUserAccessContext, ProfileRecord } from '@/types/auth';
 
 export async function getProfileRecordByUserId(supabase: SupabaseClient, userId: string) {
   const { data, error } = await supabase
@@ -14,4 +14,15 @@ export async function getProfileRecordByUserId(supabase: SupabaseClient, userId:
   }
 
   return data as ProfileRecord | null;
+}
+
+export async function getCurrentUserAccessContext(supabase: SupabaseClient) {
+  const { data, error } = await supabase.rpc('get_current_user_access_context');
+
+  if (error || !Array.isArray(data) || data.length === 0) {
+    return null;
+  }
+
+  const [context] = data;
+  return context as CurrentUserAccessContext;
 }

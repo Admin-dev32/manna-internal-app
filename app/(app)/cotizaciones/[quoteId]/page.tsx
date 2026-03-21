@@ -7,7 +7,7 @@ import { getQuoteDetailPageData } from '@/services/quotes/queries';
 export default async function QuoteDetailPage({ params }: { params: Promise<{ quoteId: string }> }) {
   const { quoteId } = await params;
   const [{ client, lead, preEvent, profileMap, quote }, session] = await Promise.all([getQuoteDetailPageData(quoteId), getSessionContext()]);
-  const canViewFinance = Boolean(session.user && hasPermission(session.user.rol, 'finance.view'));
+  const canViewFinance = Boolean(session.user && hasPermission(session.user, 'finance.view'));
   const financialSheetDraft = canViewFinance ? await getQuoteFinancialSheetDraft(quote) : null;
 
   return (

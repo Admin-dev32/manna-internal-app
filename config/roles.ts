@@ -20,6 +20,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionKey[]> = {
     'inventory.view',
     'settings.view',
     'audit.view',
+    'admin.users.manage',
   ],
   manager: [
     'dashboard.view',

@@ -1,13 +1,17 @@
 import type { Route } from 'next';
 import Link from 'next/link';
 
+import { createEventFromPreEventAction } from '@/services/events/actions';
+import { FinancialSummaryCard } from '@/components/finance/financial-summary-card';
 import { PreEventStatusBadge } from '@/components/pre-events/pre-event-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ClientRecord } from '@/types/clients';
+import type { EventFinanceSnapshot, EventRecord } from '@/types/events';
 import type { LeadProfileOption, LeadRecord } from '@/types/leads';
 import type { PreEventRecord } from '@/types/pre-events';
 import type { QuoteRecord } from '@/types/quotes';
+import { getPreEventReadyState } from '@/lib/events/readiness';
 
 function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(new Date(value)) : 'Pendiente';
@@ -23,8 +27,27 @@ function getPendingItems(preEvent: PreEventRecord) {
   return items;
 }
 
-export function PreEventDetail({ preEvent, client, lead, quote, profiles }: { preEvent: PreEventRecord; client: ClientRecord; lead: LeadRecord | null; quote: QuoteRecord; profiles: Record<string, LeadProfileOption> }) {
+export function PreEventDetail({
+  preEvent,
+  client,
+  lead,
+  quote,
+  profiles,
+  linkedEvent,
+  financeSummary,
+  canViewFinance,
+}: {
+  preEvent: PreEventRecord;
+  client: ClientRecord;
+  lead: LeadRecord | null;
+  quote: QuoteRecord;
+  profiles: Record<string, LeadProfileOption>;
+  linkedEvent: EventRecord | null;
+  financeSummary: EventFinanceSnapshot | null;
+  canViewFinance: boolean;
+}) {
   const pendingItems = getPendingItems(preEvent);
+  const readyState = getPreEventReadyState(preEvent);
 
   return (
     <div className="flex flex-col gap-6">
@@ -41,6 +64,15 @@ export function PreEventDetail({ preEvent, client, lead, quote, profiles }: { pr
           <Button asChild>
             <Link href={`/reservas/${preEvent.id}/editar` as Route}>Editar pre-evento</Link>
           </Button>
+          {linkedEvent ? (
+            <Button asChild variant="secondary">
+              <Link href={`/eventos/${linkedEvent.id}` as Route}>Abrir evento creado</Link>
+            </Button>
+          ) : readyState.isReady ? (
+            <form action={createEventFromPreEventAction.bind(null, preEvent.id)}>
+              <Button type="submit" variant="secondary">Crear evento</Button>
+            </form>
+          ) : null}
           <Button asChild variant="outline">
             <Link href={'/reservas' as Route}>Ver reservas</Link>
           </Button>
@@ -86,6 +118,21 @@ export function PreEventDetail({ preEvent, client, lead, quote, profiles }: { pr
                   </div>
                 ))
               )}
+              {!linkedEvent && !readyState.isReady ? (
+                <div className="rounded-2xl border border-dashed border-border px-4 py-3 text-muted-foreground">
+                  Completa los requisitos mínimos para habilitar la conversión a evento real.
+                </div>
+              ) : null}
+              {!linkedEvent && readyState.isReady ? (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800">
+                  Esta reserva ya está lista para convertirse en evento real.
+                </div>
+              ) : null}
+              {linkedEvent ? (
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sky-800">
+                  Esta reserva ya fue convertida en el evento #{linkedEvent.id.slice(0, 8)}.
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -136,6 +183,14 @@ export function PreEventDetail({ preEvent, client, lead, quote, profiles }: { pr
           </Card>
         </div>
       </div>
+
+      {canViewFinance && financeSummary ? (
+        <FinancialSummaryCard
+          summary={financeSummary}
+          title="Contexto financiero origen"
+          description="Resumen read-only reutilizado desde la hoja financiera de la cotización origen, sin duplicar cálculos en la reserva."
+        />
+      ) : null}
     </div>
   );
 }
