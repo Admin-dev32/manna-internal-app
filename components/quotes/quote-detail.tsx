@@ -2,12 +2,14 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle2, PencilLine, ReceiptText, UserPlus, XCircle } from 'lucide-react';
 
+import { QuoteFinancialSheet } from '@/components/finance/quote-financial-sheet';
 import { convertLeadToClientAction } from '@/services/clients/actions';
 import { acceptQuoteAction, rejectQuoteAction } from '@/services/quotes/actions';
 import { QuoteStatusBadge } from '@/components/quotes/quote-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ClientRecord } from '@/types/clients';
+import type { QuoteFinancialSheetDraft } from '@/types/finance';
 import type { LeadProfileOption } from '@/types/leads';
 import type { PreEventRecord } from '@/types/pre-events';
 import type { QuoteLeadSummary, QuoteRecord } from '@/types/quotes';
@@ -28,12 +30,16 @@ export function QuoteDetail({
   profiles,
   client,
   preEvent,
+  canViewFinance,
+  financialSheetDraft,
 }: {
   quote: QuoteRecord;
   lead: QuoteLeadSummary;
   profiles: Record<string, LeadProfileOption>;
   client: ClientRecord | null;
   preEvent: PreEventRecord | null;
+  canViewFinance: boolean;
+  financialSheetDraft: QuoteFinancialSheetDraft | null;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -179,6 +185,15 @@ export function QuoteDetail({
           </Card>
         </div>
       </div>
+
+      {canViewFinance && financialSheetDraft ? (
+        <QuoteFinancialSheet
+          quoteId={quote.id}
+          initialGrossRevenue={quote.total_amount}
+          draft={financialSheetDraft}
+          canManage
+        />
+      ) : null}
     </div>
   );
 }

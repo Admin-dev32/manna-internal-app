@@ -30,6 +30,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionKey[]> = {
     'notifications.view',
     'communication.view',
     'employees.view',
+    'finance.view',
     'inventory.view',
   ],
   empleado: [
