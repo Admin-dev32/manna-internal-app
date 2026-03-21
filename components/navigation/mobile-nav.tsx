@@ -34,7 +34,7 @@ export function MobileNav({ user, open, onClose }: MobileNavProps) {
       />
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-[88vw] max-w-sm flex-col border-r border-border bg-background px-4 py-4 shadow-2xl transition-transform duration-200 lg:hidden',
+          'fixed inset-y-0 left-0 z-50 flex min-h-0 w-[88vw] max-w-sm flex-col border-r border-border bg-background px-4 py-4 shadow-2xl transition-transform duration-200 lg:hidden',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
         aria-hidden={!open}
@@ -50,11 +50,11 @@ export function MobileNav({ user, open, onClose }: MobileNavProps) {
           </Button>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-          Accede aquí al flujo ya funcional: leads, cotizaciones, clientes mínimos y reservas iniciales.
+        <div className="mt-4 px-1 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+          Flujo activo
         </div>
 
-        <nav className="mt-5 flex flex-1 flex-col gap-2 overflow-y-auto pb-4" aria-label="Navegación móvil">
+        <nav className="mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-4" aria-label="Navegación móvil">
           {items.map((item) => (
             <NavLink key={item.href} {...item} onNavigate={onClose} />
           ))}
