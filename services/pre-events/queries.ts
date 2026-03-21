@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getClientById, getClientByLeadId } from '@/services/clients/queries';
 import { getLeadById } from '@/services/leads/queries';
+import type { ClientRecord } from '@/types/clients';
 import type { LeadProfileOption } from '@/types/leads';
 import type { PreEventRecord } from '@/types/pre-events';
 import type { QuoteRecord } from '@/types/quotes';
@@ -105,4 +106,42 @@ export async function getPreEventDetailPageData(preEventId: string) {
   }
 
   return { client, lead, preEvent, profiles, quote };
+}
+
+export async function getPreEventsOverviewPageData() {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return {
+      preEvents: [] as PreEventRecord[],
+      clients: {} as Record<string, ClientRecord>,
+      quotes: {} as Record<string, Pick<QuoteRecord, 'id' | 'status'>>,
+    };
+  }
+
+  const { data } = await supabase.from('pre_events').select('*').order('updated_at', { ascending: false }).limit(25);
+  const preEvents = (data ?? []) as PreEventRecord[];
+
+  if (preEvents.length === 0) {
+    return {
+      preEvents,
+      clients: {} as Record<string, ClientRecord>,
+      quotes: {} as Record<string, Pick<QuoteRecord, 'id' | 'status'>>,
+    };
+  }
+
+  const clientIds = [...new Set(preEvents.map((preEvent) => preEvent.client_id))];
+  const quoteIds = [...new Set(preEvents.map((preEvent) => preEvent.source_quote_id))];
+
+  const [{ data: clientsData }, { data: quotesData }] = await Promise.all([
+    supabase.from('clients').select('*').in('id', clientIds),
+    supabase.from('quotes').select('id, status').in('id', quoteIds),
+  ]);
+
+  return {
+    preEvents,
+    clients: Object.fromEntries(((clientsData ?? []) as ClientRecord[]).map((client) => [client.id, client])),
+    quotes: Object.fromEntries(
+      (((quotesData ?? []) as Array<Pick<QuoteRecord, 'id' | 'status'>>).map((quote) => [quote.id, quote])),
+    ) as Record<string, Pick<QuoteRecord, 'id' | 'status'>>,
+  };
 }

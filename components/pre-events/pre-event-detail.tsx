@@ -13,7 +13,19 @@ function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(new Date(value)) : 'Pendiente';
 }
 
+function getPendingItems(preEvent: PreEventRecord) {
+  const items: string[] = [];
+  if (!preEvent.confirmed_date) items.push('Definir fecha confirmada');
+  if (!preEvent.confirmed_time) items.push('Definir hora confirmada');
+  if (!preEvent.location) items.push('Confirmar location');
+  if (!preEvent.confirmed_guests) items.push('Confirmar invitados');
+  if (!preEvent.booked_service) items.push('Confirmar servicio contratado');
+  return items;
+}
+
 export function PreEventDetail({ preEvent, client, lead, quote, profiles }: { preEvent: PreEventRecord; client: ClientRecord; lead: LeadRecord | null; quote: QuoteRecord; profiles: Record<string, LeadProfileOption> }) {
+  const pendingItems = getPendingItems(preEvent);
+
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-[2rem] border border-border bg-slate-950 p-6 text-white shadow-panel sm:p-8">
@@ -28,6 +40,9 @@ export function PreEventDetail({ preEvent, client, lead, quote, profiles }: { pr
         <div className="mt-4 flex flex-wrap gap-3">
           <Button asChild>
             <Link href={`/reservas/${preEvent.id}/editar` as Route}>Editar pre-evento</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href={'/reservas' as Route}>Ver reservas</Link>
           </Button>
           <Button asChild variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
             <Link href={`/clientes/${client.id}` as Route}>Volver al cliente</Link>
@@ -54,6 +69,38 @@ export function PreEventDetail({ preEvent, client, lead, quote, profiles }: { pr
         </Card>
 
         <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Checklist operativo pendiente</CardTitle>
+              <CardDescription>Datos que aún faltan para dejar la reserva lista como base del futuro módulo de Eventos.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {pendingItems.length === 0 ? (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800">
+                  Esta reserva ya tiene completos los datos operativos esenciales.
+                </div>
+              ) : (
+                pendingItems.map((item) => (
+                  <div key={item} className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
+                    {item}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Origen comercial</CardTitle>
+              <CardDescription>Conexión directa con el cliente y la cotización aceptada que originaron esta reserva.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <SummaryRow label="Cliente origen" value={client.full_name} />
+              <SummaryRow label="Cotización origen" value={`#${quote.id.slice(0, 8)} · ${quote.status}`} />
+              <SummaryRow label="Lead ligado" value={lead?.full_name ?? 'Sin lead ligado'} />
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Resumen del cliente</CardTitle>

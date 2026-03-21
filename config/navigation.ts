@@ -43,9 +43,25 @@ export const navigationItems: NavigationItem[] = [
   {
     href: '/cotizaciones',
     label: 'Cotizaciones',
-    description: 'Cotizaciones, clientes derivados y reservas iniciales.',
+    description: 'Propuestas comerciales, detalle y seguimiento de venta.',
     icon: 'cotizaciones',
     permission: 'quotes.view',
-    matchPrefixes: ['/cotizaciones', '/clientes', '/reservas'],
+    matchPrefixes: ['/cotizaciones'],
+  },
+  {
+    href: '/clientes',
+    label: 'Clientes',
+    description: 'Clientes mínimos ya convertidos desde ventas aceptadas.',
+    icon: 'clientes',
+    permission: 'crm.view',
+    matchPrefixes: ['/clientes'],
+  },
+  {
+    href: '/reservas',
+    label: 'Reservas',
+    description: 'Pre-eventos y reservas iniciales para operación.',
+    icon: 'eventos',
+    permission: 'events.view',
+    matchPrefixes: ['/reservas'],
   },
 ];

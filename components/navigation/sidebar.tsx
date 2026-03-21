@@ -61,7 +61,7 @@ export function Sidebar({ user, collapsed, onToggleCollapse }: SidebarProps) {
       </div>
 
       <div className={cn('mt-5 flex items-center', collapsed ? 'justify-center px-1' : 'justify-between px-2')}>
-        {!collapsed ? <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Áreas activas</p> : null}
+        {!collapsed ? <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Flujo activo</p> : null}
       </div>
 
       <nav className={cn('mt-4 flex flex-1 flex-col gap-2 overflow-y-auto', collapsed ? 'px-1' : 'pr-1')} aria-label="Navegación principal">
@@ -72,7 +72,7 @@ export function Sidebar({ user, collapsed, onToggleCollapse }: SidebarProps) {
 
       {!collapsed ? (
         <div className="mt-4 rounded-3xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-          Clientes y reservas iniciales ya existen, pero hoy se operan desde <span className="font-medium text-foreground">Cotizaciones</span> y sus flujos derivados para no exponer accesos placeholder.
+          El sidebar ya expone Leads, Cotizaciones, Clientes mínimos y Reservas iniciales sin depender de URLs manuales.
         </div>
       ) : null}
     </aside>

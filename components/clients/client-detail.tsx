@@ -15,8 +15,15 @@ export function ClientDetail({ client, profiles, preEvent }: { client: ClientRec
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-[2rem] border border-border bg-slate-950 p-6 text-white shadow-panel sm:p-8">
-        <h1 className="text-3xl font-semibold">Cliente creado desde lead</h1>
-        <p className="mt-2 text-sm text-slate-300">Base mínima para la futura administración completa de clientes y su relación con eventos.</p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold">Cliente creado desde lead</h1>
+            <p className="mt-2 text-sm text-slate-300">Base mínima para la futura administración completa de clientes y su relación con eventos.</p>
+          </div>
+          <Button asChild variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+            <Link href={'/clientes' as Route}>Volver a clientes</Link>
+          </Button>
+        </div>
       </section>
 
       <Card>

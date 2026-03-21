@@ -115,3 +115,56 @@ export async function updatePreEventAction(preEventId: string, leadId: string | 
   revalidatePath(`/reservas/${preEventId}` as Route);
   redirect(`/reservas/${preEventId}` as Route);
 }
+
+export async function quickUpdatePreEventAction(
+  preEventId: string,
+  leadId: string | null,
+  clientId: string,
+  quoteId: string,
+  _previousState: PreEventFormState,
+  formData: FormData,
+): Promise<PreEventFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  }
+
+  const data: Record<string, string | number | null> = {
+    updated_by: session.user.id,
+  };
+
+  if (formData.has('status')) {
+    data.status = (parseOptionalString(formData.get('status')) ?? 'pendiente') as PreEventStatus;
+  }
+  if (formData.has('confirmed_date')) {
+    data.confirmed_date = parseOptionalString(formData.get('confirmed_date'));
+  }
+  if (formData.has('confirmed_time')) {
+    data.confirmed_time = parseOptionalString(formData.get('confirmed_time'));
+  }
+  if (formData.has('location')) {
+    data.location = parseOptionalString(formData.get('location'));
+  }
+  if (formData.has('confirmed_guests')) {
+    data.confirmed_guests = parseOptionalInteger(formData.get('confirmed_guests'));
+  }
+
+  const { error } = await supabase.from('pre_events').update(data).eq('id', preEventId);
+
+  if (error) {
+    return { status: 'error', message: 'No pudimos guardar la actualización rápida.' };
+  }
+
+  if (leadId) {
+    await insertLeadActivity(leadId, session.user.id, 'Pre-evento actualizado rápidamente', `Estado: ${String(data.status ?? 'sin cambio')}.`);
+  }
+
+  revalidatePath('/reservas' as Route);
+  revalidatePath(`/reservas/${preEventId}` as Route);
+  revalidatePath(`/clientes/${clientId}` as Route);
+  revalidatePath(`/cotizaciones/${quoteId}` as Route);
+
+  return { status: 'success', message: 'Reserva actualizada.' };
+}
