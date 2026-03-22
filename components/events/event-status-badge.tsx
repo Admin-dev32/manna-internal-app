@@ -1,14 +1,16 @@
 import { Badge } from '@/components/ui/badge';
+import { EVENT_STATUS_LABELS } from '@/config/events';
 import type { EventStatus } from '@/types/events';
 
-const statusMap: Record<EventStatus, { label: string; variant: 'default' | 'secondary' | 'warning' | 'success' }> = {
-  programado: { label: 'Programado', variant: 'default' },
-  en_operacion: { label: 'En operación', variant: 'warning' },
-  completado: { label: 'Completado', variant: 'success' },
-  cancelado: { label: 'Cancelado', variant: 'secondary' },
+const statusMap: Record<EventStatus, { variant: 'default' | 'secondary' | 'warning' | 'success' }> = {
+  pendiente: { variant: 'warning' },
+  confirmado: { variant: 'default' },
+  en_preparacion: { variant: 'secondary' },
+  completado: { variant: 'success' },
+  cancelado: { variant: 'outline' },
 };
 
 export function EventStatusBadge({ status }: { status: EventStatus }) {
   const descriptor = statusMap[status];
-  return <Badge variant={descriptor.variant}>{descriptor.label}</Badge>;
+  return <Badge variant={descriptor.variant}>{EVENT_STATUS_LABELS[status]}</Badge>;
 }

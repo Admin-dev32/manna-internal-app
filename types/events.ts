@@ -1,6 +1,14 @@
-export const EVENT_STATUSES = ['programado', 'en_operacion', 'completado', 'cancelado'] as const;
+export const EVENT_STATUSES = ['pendiente', 'confirmado', 'en_preparacion', 'completado', 'cancelado'] as const;
+export const EVENT_CHECKLIST_KEYS = [
+  'ubicacion_confirmada',
+  'hora_confirmada',
+  'invitados_confirmados',
+  'servicio_confirmado',
+  'setup_revisado',
+] as const;
 
 export type EventStatus = (typeof EVENT_STATUSES)[number];
+export type EventChecklistKey = (typeof EVENT_CHECKLIST_KEYS)[number];
 
 export interface EventRecord {
   id: string;
@@ -28,4 +36,24 @@ export interface EventFinanceSnapshot {
   salesCommission: number;
   totalExtraExpenses: number;
   netProfit: number;
+}
+
+export interface EventChecklistItemRecord {
+  id: string;
+  event_id: string;
+  item_key: EventChecklistKey | string;
+  label: string;
+  description: string | null;
+  is_completed: boolean;
+  sort_order: number;
+  completed_at: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventChecklistProgress {
+  total: number;
+  completed: number;
+  pending: number;
 }
