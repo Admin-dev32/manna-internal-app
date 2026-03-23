@@ -88,6 +88,30 @@ export const navigationItems: NavigationItem[] = [
     permission: 'events.view',
     matchPrefixes: ['/eventos'],
   },
+  {
+    href: '/tareas',
+    label: 'Tareas',
+    description: 'Trabajo operativo por evento, responsable, prioridad y estado.',
+    icon: 'tareas',
+    permission: 'tasks.view',
+    matchPrefixes: ['/tareas'],
+  },
+  {
+    href: '/notificaciones',
+    label: 'Notificaciones',
+    description: 'Recordatorios internos y alertas suaves para seguimiento comercial y operativo.',
+    icon: 'notificaciones',
+    permission: 'notifications.view',
+    matchPrefixes: ['/notificaciones'],
+  },
+  {
+    href: '/inventario',
+    label: 'Inventario',
+    description: 'Materiales, stock actual y necesidades ligadas a eventos.',
+    icon: 'inventario',
+    permission: 'inventory.view',
+    matchPrefixes: ['/inventario'],
+  },
 ];
 
 export const mainNavigationItems = navigationItems;

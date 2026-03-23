@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { BellRing, Menu, PanelLeftClose, PanelLeftOpen, Search, ShieldCheck } from 'lucide-react';
 
 import { LogoutButton } from '@/components/auth/logout-button';
@@ -61,8 +62,10 @@ export function AppHeader({ user, isDemoMode, isSidebarCollapsed, onOpenMobileNa
           <Badge className={cn('max-w-[180px] truncate', isDemoMode ? '' : 'sm:max-w-none')} variant={isDemoMode ? 'warning' : user.estado === 'activo' ? 'success' : 'warning'}>
             {isDemoMode ? 'Modo preparación' : `${ROLE_LABELS[user.rol]} · ${user.estado}`}
           </Badge>
-          <Button variant="outline" size="icon" aria-label="Notificaciones" className="shrink-0 bg-white/85">
-            <BellRing className="size-5" />
+          <Button asChild variant="outline" size="icon" aria-label="Notificaciones" className="shrink-0 bg-white/85">
+            <Link href="/notificaciones">
+              <BellRing className="size-5" />
+            </Link>
           </Button>
           <div className="shrink-0">
             <LogoutButton />

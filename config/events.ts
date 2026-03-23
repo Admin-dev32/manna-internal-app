@@ -1,4 +1,11 @@
-import type { EventChecklistKey, EventStatus } from '@/types/events';
+import type {
+  EventAssignmentRole,
+  EventAssignmentStatus,
+  EventChecklistKey,
+  EventStatus,
+  EventTaskPriority,
+  EventTaskStatus,
+} from '@/types/events';
 
 export const EVENT_STATUS_LABELS: Record<EventStatus, string> = {
   pendiente: 'Pendiente',
@@ -63,3 +70,29 @@ export const EVENT_CHECKLIST_TEMPLATE: EventChecklistTemplateItem[] = [
     sortOrder: 50,
   },
 ];
+
+export const EVENT_ASSIGNMENT_ROLE_LABELS: Record<EventAssignmentRole, string> = {
+  lider: 'Líder',
+  apoyo: 'Apoyo',
+  setup: 'Setup',
+  general: 'General',
+};
+
+export const EVENT_ASSIGNMENT_STATUS_LABELS: Record<EventAssignmentStatus, string> = {
+  pendiente: 'Pendiente',
+  confirmado: 'Confirmado',
+};
+
+export const EVENT_TASK_STATUS_LABELS: Record<EventTaskStatus, string> = {
+  pendiente: 'Pendiente',
+  en_progreso: 'En progreso',
+  completada: 'Completada',
+  bloqueada: 'Bloqueada',
+};
+
+export const EVENT_TASK_PRIORITY_LABELS: Record<EventTaskPriority, string> = {
+  baja: 'Baja',
+  media: 'Media',
+  alta: 'Alta',
+  urgente: 'Urgente',
+};

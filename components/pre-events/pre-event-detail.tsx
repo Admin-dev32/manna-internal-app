@@ -4,11 +4,13 @@ import Link from 'next/link';
 import { createEventFromPreEventAction } from '@/services/events/actions';
 import { FinancialSummaryCard } from '@/components/finance/financial-summary-card';
 import { PreEventStatusBadge } from '@/components/pre-events/pre-event-status-badge';
+import { EventTemplateSection } from '@/components/templates/event-template-section';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ClientRecord } from '@/types/clients';
 import type { EventFinanceSnapshot, EventRecord } from '@/types/events';
 import type { LeadProfileOption, LeadRecord } from '@/types/leads';
+import type { EventOperationalTemplateApplicationRecord } from '@/types/operational-templates';
 import type { PreEventRecord } from '@/types/pre-events';
 import type { QuoteRecord } from '@/types/quotes';
 import { getPreEventReadyState } from '@/lib/events/readiness';
@@ -34,6 +36,9 @@ export function PreEventDetail({
   quote,
   profiles,
   linkedEvent,
+  applicableOperationalTemplates,
+  operationalTemplateApplications,
+  operationalTemplateProfiles,
   financeSummary,
   canViewFinance,
 }: {
@@ -43,6 +48,19 @@ export function PreEventDetail({
   quote: QuoteRecord;
   profiles: Record<string, LeadProfileOption>;
   linkedEvent: EventRecord | null;
+  applicableOperationalTemplates: Array<{
+    template: {
+      id: string;
+      name: string;
+      event_type: string | null;
+      note: string | null;
+    };
+    checklistItems: Array<{ id: string }>;
+    taskItems: Array<{ id: string }>;
+    materialItems: Array<{ id: string }>;
+  }>;
+  operationalTemplateApplications: EventOperationalTemplateApplicationRecord[];
+  operationalTemplateProfiles: Record<string, LeadProfileOption>;
   financeSummary: EventFinanceSnapshot | null;
   canViewFinance: boolean;
 }) {
@@ -183,6 +201,15 @@ export function PreEventDetail({
           </Card>
         </div>
       </div>
+
+      <EventTemplateSection
+        eventId={linkedEvent?.id ?? preEvent.id}
+        preEventId={preEvent.id}
+        templates={applicableOperationalTemplates}
+        applications={operationalTemplateApplications}
+        profiles={operationalTemplateProfiles}
+        disabledReason={linkedEvent ? undefined : 'Primero convierte la reserva en evento para poder aplicar checklist, tareas y materiales reales.'}
+      />
 
       {canViewFinance && financeSummary ? (
         <FinancialSummaryCard

@@ -1,5 +1,8 @@
-import { ModulePage } from '@/features/module-shell/module-page';
+import { RemindersCenter } from '@/components/reminders/reminders-center';
+import { getRemindersCenterData } from '@/services/reminders/queries';
 
-export default function NotificacionesPage() {
-  return <ModulePage moduleKey="notificaciones" />;
+export default async function NotificacionesPage() {
+  const reminders = await getRemindersCenterData();
+
+  return <RemindersCenter data={reminders} />;
 }

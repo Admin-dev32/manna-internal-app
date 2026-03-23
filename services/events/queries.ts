@@ -4,11 +4,23 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getClientById } from '@/services/clients/queries';
 import { getQuoteFinancialSummary } from '@/services/finance/queries';
 import { getLeadById } from '@/services/leads/queries';
+import { getEventInventorySectionData } from '@/services/inventory/queries';
 import { getPreEventById } from '@/services/pre-events/queries';
+import { getEventOperationalTemplatePanelData } from '@/services/operational-templates/queries';
 import type { ClientRecord } from '@/types/clients';
-import type { EventChecklistItemRecord, EventChecklistProgress, EventRecord, EventStatus } from '@/types/events';
+import { EVENT_ASSIGNMENT_ROLES, EVENT_TASK_PRIORITIES } from '@/types/events';
+import type {
+  EventChecklistItemRecord,
+  EventChecklistProgress,
+  EventRecord,
+  EventStaffAssignmentRecord,
+  EventStatus,
+  EventTaskRecord,
+} from '@/types/events';
 import type { LeadProfileOption } from '@/types/leads';
+import type { EventInventoryRequirementRecord, InventoryAvailabilitySummary, InventoryItemRecord } from '@/types/inventory';
 import type { QuoteRecord } from '@/types/quotes';
+import type { EventOperationalTemplateApplicationRecord } from '@/types/operational-templates';
 
 async function getProfilesMap(ids: string[]) {
   const supabase = await createSupabaseServerClient();
@@ -68,6 +80,91 @@ export async function getEventChecklistItems(eventId: string) {
   return (data ?? []) as EventChecklistItemRecord[];
 }
 
+const EVENT_ASSIGNMENT_ROLE_SORT_ORDER = Object.fromEntries(EVENT_ASSIGNMENT_ROLES.map((role, index) => [role, index])) as Record<
+  (typeof EVENT_ASSIGNMENT_ROLES)[number],
+  number
+>;
+const EVENT_TASK_PRIORITY_SORT_ORDER = Object.fromEntries(EVENT_TASK_PRIORITIES.map((priority, index) => [priority, index])) as Record<
+  (typeof EVENT_TASK_PRIORITIES)[number],
+  number
+>;
+
+export async function getEventStaffAssignments(eventId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as EventStaffAssignmentRecord[];
+
+  const { data } = await supabase
+    .from('event_staff_assignments')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('assignment_role', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  return ((data ?? []) as EventStaffAssignmentRecord[]).sort((left, right) => {
+    const roleDiff = EVENT_ASSIGNMENT_ROLE_SORT_ORDER[left.assignment_role] - EVENT_ASSIGNMENT_ROLE_SORT_ORDER[right.assignment_role];
+    if (roleDiff !== 0) {
+      return roleDiff;
+    }
+
+    return left.created_at.localeCompare(right.created_at);
+  });
+}
+
+export async function getEventTasks(eventId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as EventTaskRecord[];
+
+  const { data } = await supabase
+    .from('event_tasks')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('status', { ascending: true })
+    .order('priority', { ascending: false })
+    .order('created_at', { ascending: true });
+
+  return ((data ?? []) as EventTaskRecord[]).sort((left, right) => {
+    if (left.status === 'completada' && right.status !== 'completada') {
+      return 1;
+    }
+
+    if (left.status !== 'completada' && right.status === 'completada') {
+      return -1;
+    }
+
+    const priorityDiff = EVENT_TASK_PRIORITY_SORT_ORDER[right.priority] - EVENT_TASK_PRIORITY_SORT_ORDER[left.priority];
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+
+    if (left.due_at && right.due_at) {
+      return left.due_at.localeCompare(right.due_at);
+    }
+
+    if (left.due_at) {
+      return -1;
+    }
+
+    if (right.due_at) {
+      return 1;
+    }
+
+    return left.created_at.localeCompare(right.created_at);
+  });
+}
+
+export async function getAssignableProfiles() {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as LeadProfileOption[];
+
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, full_name, role, is_active')
+    .eq('is_active', true)
+    .order('full_name', { ascending: true });
+
+  return (data ?? []) as LeadProfileOption[];
+}
+
 export async function getEventDetailPageData(eventId: string) {
   const event = await getEventById(eventId);
   if (!event) {
@@ -76,13 +173,17 @@ export async function getEventDetailPageData(eventId: string) {
   }
   const currentEvent = event;
 
-  const [client, lead, preEvent, quote, checklistItems, profiles, financeSummary] = await Promise.all([
+  const [client, lead, preEvent, quote, checklistItems, assignments, tasks, inventorySection, templateSection, assignableProfiles, financeSummary] = await Promise.all([
     getClientById(currentEvent.client_id),
     currentEvent.lead_id ? getLeadById(currentEvent.lead_id) : Promise.resolve(null),
     getPreEventById(currentEvent.source_pre_event_id),
     getQuoteRecordById(currentEvent.source_quote_id),
     getEventChecklistItems(currentEvent.id),
-    getProfilesMap([currentEvent.created_by, currentEvent.updated_by]),
+    getEventStaffAssignments(currentEvent.id),
+    getEventTasks(currentEvent.id),
+    getEventInventorySectionData(currentEvent.id),
+    getEventOperationalTemplatePanelData(currentEvent),
+    getAssignableProfiles(),
     getQuoteFinancialSummary(currentEvent.source_quote_id),
   ]);
 
@@ -90,6 +191,22 @@ export async function getEventDetailPageData(eventId: string) {
     notFound();
     return;
   }
+
+  const profiles = await getProfilesMap([
+    currentEvent.created_by,
+    currentEvent.updated_by,
+    ...assignments.map((assignment) => assignment.profile_id),
+    ...assignments.map((assignment) => assignment.created_by),
+    ...assignments.map((assignment) => assignment.updated_by),
+    ...tasks.map((task) => task.assigned_profile_id),
+    ...tasks.map((task) => task.created_by),
+    ...tasks.map((task) => task.updated_by),
+    ...inventorySection.inventoryItems.map((item) => item.created_by),
+    ...inventorySection.inventoryItems.map((item) => item.updated_by),
+  ]);
+
+  const assignedProfileIds = new Set(assignments.map((assignment) => assignment.profile_id));
+  const availableProfiles = assignableProfiles.filter((profile) => !assignedProfileIds.has(profile.id));
 
   return {
     event: currentEvent,
@@ -99,6 +216,15 @@ export async function getEventDetailPageData(eventId: string) {
     quote,
     checklistItems,
     checklistProgress: computeChecklistProgress(checklistItems),
+    assignments,
+    tasks,
+    inventoryItems: inventorySection.inventoryItems as InventoryItemRecord[],
+    inventoryRequirements: inventorySection.requirements as EventInventoryRequirementRecord[],
+    inventoryAvailabilityByItem: inventorySection.availabilityByItem as Record<string, InventoryAvailabilitySummary>,
+    applicableOperationalTemplates: templateSection.applicableTemplates,
+    operationalTemplateApplications: templateSection.applications as EventOperationalTemplateApplicationRecord[],
+    operationalTemplateProfiles: templateSection.profiles,
+    assignableProfiles: availableProfiles,
     profiles,
     financeSummary,
   };
