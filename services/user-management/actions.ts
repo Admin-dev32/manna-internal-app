@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 
+import { requirePermission } from '@/lib/auth/guards';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PERMISSION_KEYS, USER_ROLES } from '@/types/auth';
 import type { UserManagementActionState } from '@/types/user-management';
@@ -18,6 +19,8 @@ export async function updateManagedUserAction(
   _previousState: UserManagementActionState,
   formData: FormData,
 ): Promise<UserManagementActionState> {
+  await requirePermission('admin.users.manage');
+
   const supabase = await createSupabaseServerClient();
   if (!supabase) {
     return {

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { PreEventRecord } from '@/types/pre-events';
 import type { LeadProfileOption } from '@/types/leads';
 import type { ClientRecord } from '@/types/clients';
+import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -87,6 +88,8 @@ export function ClientDetail({ client, profiles, preEvent }: { client: ClientRec
           <div className="rounded-2xl bg-background p-4 text-sm text-foreground whitespace-pre-wrap">{client.notes ?? 'Sin notas trasladadas desde el lead.'}</div>
         </CardContent>
       </Card>
+
+      <RecordTimelineSection entityType="client" entityId={client.id} returnPath={`/clientes/${client.id}`} />
     </div>
   );
 }

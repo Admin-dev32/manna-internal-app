@@ -7,7 +7,7 @@ import { EVENT_ASSIGNMENT_ROLE_LABELS } from '@/config/events';
 import { requireActiveSession, requirePermission } from '@/lib/auth/guards';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getEventById, getEventStaffAssignments } from '@/services/events/queries';
-import { getInventoryItemByIdForTemplates } from '@/services/operational-templates/internal';
+import { OPERATIONAL_TEMPLATE_SEEDS } from '@/services/operational-templates/seed-data';
 import {
   EVENT_ASSIGNMENT_ROLES,
   EVENT_TASK_PRIORITIES,
@@ -25,18 +25,20 @@ function normalizeOptionalString(value: FormDataEntryValue | null) {
   return normalized || null;
 }
 
+function slugifyTemplateName(value: string) {
+  return value
+    .toLocaleLowerCase('es-MX')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
 function normalizeNonNegativeInteger(value: FormDataEntryValue | null) {
   const normalized = String(value ?? '').trim();
   if (!normalized) return null;
   const numericValue = Number(normalized);
   if (!Number.isInteger(numericValue) || numericValue < 0) return null;
-  return numericValue;
-}
-
-function normalizePositiveNumber(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim();
-  const numericValue = Number(normalized);
-  if (!Number.isFinite(numericValue) || numericValue <= 0) return null;
   return numericValue;
 }
 
@@ -148,14 +150,20 @@ export async function createOperationalTemplateAction(formData: FormData) {
   if (!supabase || !session.user) return;
 
   const name = String(formData.get('name') ?? '').trim();
-  const eventType = normalizeOptionalString(formData.get('event_type'));
+  const slug = slugifyTemplateName(String(formData.get('slug') ?? name));
+  const description = normalizeOptionalString(formData.get('description'));
+  const serviceCategory = normalizeOptionalString(formData.get('service_category'));
+  const eventType = normalizeOptionalString(formData.get('event_type')) ?? serviceCategory;
   const note = normalizeOptionalString(formData.get('note'));
   const isActive = String(formData.get('is_active') ?? 'true') === 'true';
 
-  if (!name) return;
+  if (!name || !slug) return;
 
   await supabase.from('operational_templates').insert({
     name,
+    slug,
+    description,
+    service_category: serviceCategory ?? eventType,
     event_type: eventType,
     note,
     is_active: isActive,
@@ -177,7 +185,10 @@ export async function updateOperationalTemplateAction(templateId: string, formDa
   if (!template) return;
 
   const name = String(formData.get('name') ?? '').trim();
-  const eventType = normalizeOptionalString(formData.get('event_type'));
+  const slug = slugifyTemplateName(String(formData.get('slug') ?? template.slug ?? name));
+  const description = normalizeOptionalString(formData.get('description'));
+  const serviceCategory = normalizeOptionalString(formData.get('service_category'));
+  const eventType = normalizeOptionalString(formData.get('event_type')) ?? serviceCategory;
   const note = normalizeOptionalString(formData.get('note'));
   const isActive = String(formData.get('is_active') ?? 'true') === 'true';
 
@@ -187,6 +198,9 @@ export async function updateOperationalTemplateAction(templateId: string, formDa
     .from('operational_templates')
     .update({
       name,
+      slug,
+      description,
+      service_category: serviceCategory ?? eventType,
       event_type: eventType,
       note,
       is_active: isActive,
@@ -208,6 +222,7 @@ export async function createOperationalTemplateChecklistItemAction(templateId: s
   const label = String(formData.get('label') ?? '').trim();
   const description = normalizeOptionalString(formData.get('description'));
   const sortOrder = normalizeNonNegativeInteger(formData.get('sort_order')) ?? 100;
+  const isRequired = String(formData.get('is_required') ?? 'true') === 'true';
 
   if (!label) return;
 
@@ -215,6 +230,7 @@ export async function createOperationalTemplateChecklistItemAction(templateId: s
     template_id: templateId,
     label,
     description,
+    is_required: isRequired,
     sort_order: sortOrder,
   });
 
@@ -232,6 +248,7 @@ export async function updateOperationalTemplateChecklistItemAction(templateId: s
   const label = String(formData.get('label') ?? '').trim();
   const description = normalizeOptionalString(formData.get('description'));
   const sortOrder = normalizeNonNegativeInteger(formData.get('sort_order')) ?? 100;
+  const isRequired = String(formData.get('is_required') ?? 'true') === 'true';
 
   if (!label) return;
 
@@ -240,6 +257,7 @@ export async function updateOperationalTemplateChecklistItemAction(templateId: s
     .update({
       label,
       description,
+      is_required: isRequired,
       sort_order: sortOrder,
     })
     .eq('id', itemId)
@@ -273,6 +291,7 @@ export async function createOperationalTemplateTaskItemAction(templateId: string
   const priority = String(formData.get('priority') ?? 'media');
   const defaultStatus = String(formData.get('default_status') ?? 'pendiente');
   const assignmentRoleHint = normalizeOptionalString(formData.get('assignment_role_hint'));
+  const suggestedPhase = normalizeOptionalString(formData.get('suggested_phase'));
   const dueHoursBeforeEvent = normalizeNonNegativeInteger(formData.get('due_hours_before_event'));
   const internalNote = normalizeOptionalString(formData.get('internal_note'));
   const sortOrder = normalizeNonNegativeInteger(formData.get('sort_order')) ?? 100;
@@ -289,6 +308,9 @@ export async function createOperationalTemplateTaskItemAction(templateId: string
     priority,
     default_status: defaultStatus,
     assignment_role_hint: assignmentRoleHint,
+    suggested_priority: priority,
+    suggested_phase: suggestedPhase,
+    suggested_role: assignmentRoleHint,
     due_hours_before_event: dueHoursBeforeEvent,
     internal_note: internalNote,
     sort_order: sortOrder,
@@ -310,6 +332,7 @@ export async function updateOperationalTemplateTaskItemAction(templateId: string
   const priority = String(formData.get('priority') ?? item.priority);
   const defaultStatus = String(formData.get('default_status') ?? item.default_status);
   const assignmentRoleHint = normalizeOptionalString(formData.get('assignment_role_hint'));
+  const suggestedPhase = normalizeOptionalString(formData.get('suggested_phase'));
   const dueHoursBeforeEvent = normalizeNonNegativeInteger(formData.get('due_hours_before_event'));
   const internalNote = normalizeOptionalString(formData.get('internal_note'));
   const sortOrder = normalizeNonNegativeInteger(formData.get('sort_order')) ?? 100;
@@ -327,6 +350,9 @@ export async function updateOperationalTemplateTaskItemAction(templateId: string
       priority,
       default_status: defaultStatus,
       assignment_role_hint: assignmentRoleHint,
+      suggested_priority: priority,
+      suggested_phase: suggestedPhase,
+      suggested_role: assignmentRoleHint,
       due_hours_before_event: dueHoursBeforeEvent,
       internal_note: internalNote,
       sort_order: sortOrder,
@@ -357,23 +383,24 @@ export async function createOperationalTemplateMaterialItemAction(templateId: st
   const template = await getOperationalTemplateById(templateId);
   if (!template) return;
 
-  const inventoryItemId = String(formData.get('inventory_item_id') ?? '').trim();
-  const quantityRequired = normalizePositiveNumber(formData.get('quantity_required'));
+  const name = String(formData.get('name') ?? '').trim();
+  const materialType = normalizeOptionalString(formData.get('material_type'));
   const note = normalizeOptionalString(formData.get('note'));
+  const unknowns = normalizeOptionalString(formData.get('unknowns'));
+  const pendingDefinition = String(formData.get('pending_definition') ?? 'false') === 'true';
   const sortOrder = normalizeNonNegativeInteger(formData.get('sort_order')) ?? 100;
 
-  if (!inventoryItemId || quantityRequired == null) return;
-
-  const inventoryItem = await getInventoryItemByIdForTemplates(inventoryItemId);
-  if (!inventoryItem || !inventoryItem.is_active) return;
+  if (!name) return;
 
   await supabase.from('operational_template_material_items').upsert({
     template_id: templateId,
-    inventory_item_id: inventoryItemId,
-    quantity_required: quantityRequired,
+    name,
+    material_type: materialType,
     note,
+    unknowns,
+    pending_definition: pendingDefinition,
     sort_order: sortOrder,
-  }, { onConflict: 'template_id,inventory_item_id' });
+  }, { onConflict: 'template_id,name' });
 
   await revalidateTemplatePaths();
 }
@@ -386,22 +413,23 @@ export async function updateOperationalTemplateMaterialItemAction(templateId: st
   const item = await getOperationalTemplateMaterialItemById(templateId, itemId);
   if (!item) return;
 
-  const inventoryItemId = String(formData.get('inventory_item_id') ?? '').trim();
-  const quantityRequired = normalizePositiveNumber(formData.get('quantity_required'));
+  const name = String(formData.get('name') ?? '').trim();
+  const materialType = normalizeOptionalString(formData.get('material_type'));
   const note = normalizeOptionalString(formData.get('note'));
+  const unknowns = normalizeOptionalString(formData.get('unknowns'));
+  const pendingDefinition = String(formData.get('pending_definition') ?? 'false') === 'true';
   const sortOrder = normalizeNonNegativeInteger(formData.get('sort_order')) ?? 100;
 
-  if (!inventoryItemId || quantityRequired == null) return;
-
-  const inventoryItem = await getInventoryItemByIdForTemplates(inventoryItemId);
-  if (!inventoryItem || !inventoryItem.is_active) return;
+  if (!name) return;
 
   await supabase
     .from('operational_template_material_items')
     .update({
-      inventory_item_id: inventoryItemId,
-      quantity_required: quantityRequired,
+      name,
+      material_type: materialType,
       note,
+      unknowns,
+      pending_definition: pendingDefinition,
       sort_order: sortOrder,
     })
     .eq('id', itemId)
@@ -424,6 +452,72 @@ export async function removeOperationalTemplateMaterialItemAction(templateId: st
 
 function normalizeKey(value: string) {
   return value.trim().toLocaleLowerCase('es-MX');
+}
+
+export async function bootstrapOperationalTemplatesAction() {
+  await requirePermission('settings.view');
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return;
+
+  for (const seed of OPERATIONAL_TEMPLATE_SEEDS) {
+    const { data: template } = await supabase
+      .from('operational_templates')
+      .upsert({
+        name: seed.name,
+        slug: seed.slug,
+        description: seed.description,
+        service_category: seed.serviceCategory,
+        event_type: seed.serviceCategory,
+        note: seed.note ?? null,
+        is_active: true,
+        created_by: session.user.id,
+        updated_by: session.user.id,
+      }, { onConflict: 'slug' })
+      .select('id')
+      .single();
+
+    if (!template) continue;
+
+    for (const item of seed.checklist) {
+      await supabase.from('operational_template_checklist_items').upsert({
+        template_id: template.id,
+        label: item.label,
+        description: item.description ?? null,
+        is_required: item.isRequired ?? true,
+        sort_order: item.sortOrder,
+      }, { onConflict: 'template_id,label' });
+    }
+
+    for (const item of seed.tasks) {
+      await supabase.from('operational_template_task_items').upsert({
+        template_id: template.id,
+        title: item.title,
+        description: item.description ?? null,
+        priority: item.suggestedPriority ?? 'media',
+        suggested_priority: item.suggestedPriority ?? 'media',
+        suggested_phase: item.suggestedPhase ?? null,
+        suggested_role: item.suggestedRole ?? null,
+        assignment_role_hint: item.suggestedRole ?? null,
+        default_status: 'pendiente',
+        sort_order: item.sortOrder,
+      }, { onConflict: 'template_id,title' });
+    }
+
+    for (const item of seed.materials) {
+      await supabase.from('operational_template_material_items').upsert({
+        template_id: template.id,
+        name: item.name,
+        material_type: item.materialType ?? null,
+        note: item.note ?? null,
+        sort_order: item.sortOrder,
+        pending_definition: item.pendingDefinition ?? false,
+        unknowns: item.unknowns ?? null,
+      }, { onConflict: 'template_id,name' });
+    }
+  }
+
+  await revalidateTemplatePaths();
 }
 
 export async function applyOperationalTemplateToEventAction(eventId: string, templateId: string, preEventId?: string) {
@@ -452,10 +546,10 @@ export async function applyOperationalTemplateToEventAction(eventId: string, tem
     supabase.from('event_inventory_requirements').select('id, inventory_item_id').eq('event_id', eventId),
   ]);
 
-  const existingChecklistKeys = new Set((existingChecklistData ?? []).map((item) => String(item.item_key ?? '')));
-  const existingChecklistLabels = new Set((existingChecklistData ?? []).map((item) => normalizeKey(String(item.label ?? ''))));
-  const existingTaskTitles = new Set((existingTaskData ?? []).map((item) => normalizeKey(String(item.title ?? ''))));
-  const existingMaterialIds = new Set((existingMaterialData ?? []).map((item) => String(item.inventory_item_id)));
+  const existingChecklistKeys = new Set((existingChecklistData ?? []).map((item: any) => String(item.item_key ?? '')));
+  const existingChecklistLabels = new Set((existingChecklistData ?? []).map((item: any) => normalizeKey(String(item.label ?? ''))));
+  const existingTaskTitles = new Set((existingTaskData ?? []).map((item: any) => normalizeKey(String(item.title ?? ''))));
+  const existingMaterialNotes = new Set((existingMaterialData ?? []).map((item: any) => normalizeKey(String(item.note ?? ''))));
 
   const checklistPayload = checklistItems
     .filter((item) => !existingChecklistKeys.has(`template:${item.id}`) && !existingChecklistLabels.has(normalizeKey(item.label)))
@@ -520,13 +614,13 @@ export async function applyOperationalTemplateToEventAction(eventId: string, tem
   }
 
   const materialPayload = materialItems
-    .filter((item) => !existingMaterialIds.has(item.inventory_item_id))
+    .filter((item) => item.inventory_item_id && !existingMaterialNotes.has(normalizeKey(`template-material:${item.name}`)))
     .map((item) => ({
       event_id: eventId,
       inventory_item_id: item.inventory_item_id,
-      quantity_required: item.quantity_required,
+      quantity_required: item.quantity_required ?? 1,
       quantity_used: null,
-      note: item.note,
+      note: `template-material:${item.name}${item.note ? ` · ${item.note}` : ''}${item.pending_definition ? ' · Pendiente por definir' : ''}`,
     }));
 
   if (materialPayload.length > 0) {
@@ -560,4 +654,18 @@ export async function applyOperationalTemplateToEventAction(eventId: string, tem
     .eq('id', eventId);
 
   await revalidateTemplatePaths(eventId, preEventId);
+}
+
+export async function applyOperationalTemplateCompositionToEventAction(
+  eventId: string,
+  templateAId: string,
+  templateBId: string,
+  preEventId?: string,
+) {
+  await requirePermission('events.view');
+
+  if (!templateAId || !templateBId || templateAId === templateBId) return;
+
+  await applyOperationalTemplateToEventAction(eventId, templateAId, preEventId);
+  await applyOperationalTemplateToEventAction(eventId, templateBId, preEventId);
 }

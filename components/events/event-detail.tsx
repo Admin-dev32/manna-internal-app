@@ -7,6 +7,7 @@ import { EventTasksSection } from '@/components/tasks/event-tasks-section';
 import { EventInventorySection } from '@/components/inventory/event-inventory-section';
 import { FinancialSummaryCard } from '@/components/finance/financial-summary-card';
 import { EventTemplateSection } from '@/components/templates/event-template-section';
+import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,7 +32,12 @@ import type { ClientRecord } from '@/types/clients';
 import type { EventChecklistItemRecord, EventChecklistProgress, EventFinanceSnapshot, EventRecord, EventStaffAssignmentRecord, EventTaskRecord } from '@/types/events';
 import type { EventInventoryRequirementRecord, InventoryAvailabilitySummary, InventoryItemRecord } from '@/types/inventory';
 import type { LeadProfileOption, LeadRecord } from '@/types/leads';
-import type { EventOperationalTemplateApplicationRecord } from '@/types/operational-templates';
+import type {
+  EventOperationalTemplateApplicationRecord,
+  OperationalTemplateChecklistItemRecord,
+  OperationalTemplateMaterialItemRecord,
+  OperationalTemplateTaskItemRecord,
+} from '@/types/operational-templates';
 import type { PreEventRecord } from '@/types/pre-events';
 import type { QuoteRecord } from '@/types/quotes';
 
@@ -83,12 +89,14 @@ export function EventDetail({
     template: {
       id: string;
       name: string;
+      slug: string;
+      service_category: string | null;
       event_type: string | null;
       note: string | null;
     };
-    checklistItems: Array<{ id: string }>;
-    taskItems: Array<{ id: string }>;
-    materialItems: Array<{ id: string }>;
+    checklistItems: OperationalTemplateChecklistItemRecord[];
+    taskItems: OperationalTemplateTaskItemRecord[];
+    materialItems: OperationalTemplateMaterialItemRecord[];
   }>;
   operationalTemplateApplications: EventOperationalTemplateApplicationRecord[];
   operationalTemplateProfiles: Record<string, LeadProfileOption>;
@@ -363,6 +371,8 @@ export function EventDetail({
             applications={operationalTemplateApplications}
             profiles={operationalTemplateProfiles}
           />
+
+          <RecordTimelineSection entityType="event" entityId={event.id} returnPath={`/eventos/${event.id}`} />
 
           <EventInventorySection
             eventId={event.id}

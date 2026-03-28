@@ -4,13 +4,19 @@ import Link from 'next/link';
 import { createEventFromPreEventAction } from '@/services/events/actions';
 import { FinancialSummaryCard } from '@/components/finance/financial-summary-card';
 import { PreEventStatusBadge } from '@/components/pre-events/pre-event-status-badge';
+import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
 import { EventTemplateSection } from '@/components/templates/event-template-section';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ClientRecord } from '@/types/clients';
 import type { EventFinanceSnapshot, EventRecord } from '@/types/events';
 import type { LeadProfileOption, LeadRecord } from '@/types/leads';
-import type { EventOperationalTemplateApplicationRecord } from '@/types/operational-templates';
+import type {
+  EventOperationalTemplateApplicationRecord,
+  OperationalTemplateChecklistItemRecord,
+  OperationalTemplateMaterialItemRecord,
+  OperationalTemplateTaskItemRecord,
+} from '@/types/operational-templates';
 import type { PreEventRecord } from '@/types/pre-events';
 import type { QuoteRecord } from '@/types/quotes';
 import { getPreEventReadyState } from '@/lib/events/readiness';
@@ -52,12 +58,14 @@ export function PreEventDetail({
     template: {
       id: string;
       name: string;
+      slug: string;
+      service_category: string | null;
       event_type: string | null;
       note: string | null;
     };
-    checklistItems: Array<{ id: string }>;
-    taskItems: Array<{ id: string }>;
-    materialItems: Array<{ id: string }>;
+    checklistItems: OperationalTemplateChecklistItemRecord[];
+    taskItems: OperationalTemplateTaskItemRecord[];
+    materialItems: OperationalTemplateMaterialItemRecord[];
   }>;
   operationalTemplateApplications: EventOperationalTemplateApplicationRecord[];
   operationalTemplateProfiles: Record<string, LeadProfileOption>;
@@ -210,6 +218,8 @@ export function PreEventDetail({
         profiles={operationalTemplateProfiles}
         disabledReason={linkedEvent ? undefined : 'Primero convierte la reserva en evento para poder aplicar checklist, tareas y materiales reales.'}
       />
+
+      <RecordTimelineSection entityType="pre_event" entityId={preEvent.id} returnPath={`/reservas/${preEvent.id}`} />
 
       {canViewFinance && financeSummary ? (
         <FinancialSummaryCard

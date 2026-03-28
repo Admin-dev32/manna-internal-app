@@ -5,7 +5,7 @@ import { getOperationalTemplatesPageData } from '@/services/operational-template
 export default async function OperationalTemplatesPage() {
   await requirePermission('settings.view');
 
-  const { templates, checklistItems, taskItems, materialItems, inventoryItems, profiles } = await getOperationalTemplatesPageData();
+  const { templates, checklistItems, taskItems, materialItems, profiles } = await getOperationalTemplatesPageData();
 
   return (
     <OperationalTemplatesManager
@@ -13,7 +13,6 @@ export default async function OperationalTemplatesPage() {
       checklistItems={checklistItems}
       taskItems={taskItems}
       materialItems={materialItems}
-      inventoryItems={inventoryItems}
       profiles={profiles}
     />
   );

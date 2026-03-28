@@ -5,6 +5,7 @@ export const REMINDER_AREA_LABELS: Record<ReminderArea, string> = {
   task: 'Tarea',
   pre_event: 'Reserva',
   event: 'Evento',
+  communication: 'Comunicación',
 };
 
 export const REMINDER_TIMING_LABELS: Record<ReminderTiming, string> = {

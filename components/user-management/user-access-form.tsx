@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useMemo, useState } from 'react';
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -10,9 +10,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PERMISSION_DESCRIPTIONS, PERMISSION_LABELS, USER_MANAGEMENT_OVERRIDE_OPTIONS } from '@/config/permissions';
 import { ROLE_LABELS } from '@/config/roles';
+import { getRolePermissions } from '@/lib/auth/permissions';
 import { initialUserManagementActionState } from '@/services/user-management/form-state';
 import { updateManagedUserAction } from '@/services/user-management/actions';
-import type { PermissionKey } from '@/types/auth';
+import { PERMISSION_KEYS, type PermissionKey } from '@/types/auth';
 import type { ManagedUserDetail } from '@/types/user-management';
 
 interface UserAccessFormProps {
@@ -21,10 +22,53 @@ interface UserAccessFormProps {
 
 export function UserAccessForm({ user }: UserAccessFormProps) {
   const [state, formAction] = useActionState(updateManagedUserAction.bind(null, user.id), initialUserManagementActionState);
+  const [selectedRole, setSelectedRole] = useState(user.role);
+  const [grantedPermissions, setGrantedPermissions] = useState<PermissionKey[]>(user.granted_permissions);
+  const [revokedPermissions, setRevokedPermissions] = useState<PermissionKey[]>(user.revoked_permissions);
   const isProtectedOwner = user.is_site_owner;
   const canEditRole = !isProtectedOwner;
   const canEditStatus = !isProtectedOwner;
-  const canEditOverrides = user.role !== 'owner' && !isProtectedOwner;
+  const canEditOverrides = selectedRole !== 'owner' && !isProtectedOwner;
+  const rolePermissions = useMemo(() => getRolePermissions(selectedRole), [selectedRole]);
+  const effectivePermissionSet = useMemo(() => {
+    if (isProtectedOwner || selectedRole === 'owner') {
+      return new Set(PERMISSION_KEYS);
+    }
+
+    const effective = new Set(rolePermissions);
+
+    grantedPermissions.forEach((permission) => {
+      effective.add(permission);
+    });
+
+    revokedPermissions.forEach((permission) => {
+      effective.delete(permission);
+    });
+
+    return effective;
+  }, [grantedPermissions, isProtectedOwner, revokedPermissions, rolePermissions, selectedRole]);
+
+  function addGrantedPermission(permission: PermissionKey) {
+    if (!canEditOverrides) return;
+    setGrantedPermissions((current) => (current.includes(permission) ? current : [...current, permission]));
+    setRevokedPermissions((current) => current.filter((item) => item !== permission));
+  }
+
+  function addRevokedPermission(permission: PermissionKey) {
+    if (!canEditOverrides) return;
+    setRevokedPermissions((current) => (current.includes(permission) ? current : [...current, permission]));
+    setGrantedPermissions((current) => current.filter((item) => item !== permission));
+  }
+
+  function removeGrantedPermission(permission: PermissionKey) {
+    if (!canEditOverrides) return;
+    setGrantedPermissions((current) => current.filter((item) => item !== permission));
+  }
+
+  function removeRevokedPermission(permission: PermissionKey) {
+    if (!canEditOverrides) return;
+    setRevokedPermissions((current) => current.filter((item) => item !== permission));
+  }
 
   return (
     <form action={formAction} className="space-y-6">
@@ -62,6 +106,7 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
                     id="role"
                     name="role"
                     defaultValue={user.role}
+                    onChange={(event) => setSelectedRole(event.target.value as typeof user.role)}
                     disabled={!canEditRole}
                     className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
                   >
@@ -108,18 +153,27 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
                 <PermissionColumn
                   title="Permisos adicionales"
                   description="Otorga acceso extra sobre el rol base."
-                  fieldName="granted_permissions"
-                  selectedPermissions={user.granted_permissions}
+                  selectedPermissions={grantedPermissions}
                   disabled={!canEditOverrides}
+                  onAdd={addGrantedPermission}
+                  onRemove={removeGrantedPermission}
                 />
                 <PermissionColumn
                   title="Permisos restringidos"
                   description="Quita acceso aunque el rol base lo incluya."
-                  fieldName="revoked_permissions"
-                  selectedPermissions={user.revoked_permissions}
+                  selectedPermissions={revokedPermissions}
                   disabled={!canEditOverrides}
+                  onAdd={addRevokedPermission}
+                  onRemove={removeRevokedPermission}
                 />
               </div>
+
+              {grantedPermissions.map((permission) => (
+                <input key={`granted-hidden-${permission}`} type="hidden" name="granted_permissions" value={permission} />
+              ))}
+              {revokedPermissions.map((permission) => (
+                <input key={`revoked-hidden-${permission}`} type="hidden" name="revoked_permissions" value={permission} />
+              ))}
             </CardContent>
           </Card>
         </div>
@@ -166,7 +220,7 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
               <ProtectionRow
                 icon={ShieldCheck}
                 title="Resolución de permisos"
-                description="Los permisos se calculan por rol base + grants - revokes, manteniendo compatibilidad con el sistema actual."
+                description="Prioridad: owner protegido => full access. Si no, rol base + grants explícitos - revokes explícitos."
               />
               <ProtectionRow
                 icon={ShieldCheck}
@@ -181,6 +235,38 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
           </div>
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Permisos efectivos por usuario</CardTitle>
+          <CardDescription>Vista clara de heredado por rol, override manual y resultado final por permiso.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {PERMISSION_KEYS.map((permission) => {
+            const inherited = rolePermissions.includes(permission);
+            const granted = grantedPermissions.includes(permission);
+            const revoked = revokedPermissions.includes(permission);
+            const effective = effectivePermissionSet.has(permission);
+
+            return (
+              <div key={`effective-${permission}`} className="rounded-2xl border border-border bg-background px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{PERMISSION_LABELS[permission]}</p>
+                    <p className="text-xs text-muted-foreground">{PERMISSION_DESCRIPTIONS[permission]}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={inherited ? 'outline' : 'secondary'}>{inherited ? 'Heredado por rol' : 'No heredado'}</Badge>
+                    {granted ? <Badge variant="success">Override: Grant</Badge> : null}
+                    {revoked ? <Badge variant="warning">Override: Revoke</Badge> : null}
+                    <Badge variant={effective ? 'success' : 'warning'}>{effective ? 'Efectivo: Permitido' : 'Efectivo: Restringido'}</Badge>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
     </form>
   );
 }
@@ -188,37 +274,65 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
 function PermissionColumn({
   title,
   description,
-  fieldName,
   selectedPermissions,
   disabled,
+  onAdd,
+  onRemove,
 }: {
   title: string;
   description: string;
-  fieldName: 'granted_permissions' | 'revoked_permissions';
   selectedPermissions: PermissionKey[];
   disabled: boolean;
+  onAdd: (permission: PermissionKey) => void;
+  onRemove: (permission: PermissionKey) => void;
 }) {
+  const availablePermissions = USER_MANAGEMENT_OVERRIDE_OPTIONS.filter((permission) => !selectedPermissions.includes(permission));
+
   return (
     <div className="rounded-3xl border border-border bg-background/70 p-4">
       <p className="text-sm font-semibold text-foreground">{title}</p>
       <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      <div className="mt-4">
+        <select
+          disabled={disabled}
+          defaultValue=""
+          onChange={(event) => {
+            const permission = event.target.value as PermissionKey;
+            if (permission) {
+              onAdd(permission);
+              event.currentTarget.value = '';
+            }
+          }}
+          className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          <option value="">Agregar override...</option>
+          {availablePermissions.map((permission) => (
+            <option key={`available-${permission}`} value={permission}>
+              {PERMISSION_LABELS[permission]}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="mt-4 space-y-3">
-        {USER_MANAGEMENT_OVERRIDE_OPTIONS.map((permission) => (
-          <label key={`${fieldName}-${permission}`} className="flex gap-3 rounded-2xl border border-border bg-background px-3 py-3 text-sm">
-            <input
-              type="checkbox"
-              name={fieldName}
-              value={permission}
-              defaultChecked={selectedPermissions.includes(permission)}
-              disabled={disabled}
-              className="mt-0.5 size-4 rounded border-border"
-            />
-            <span>
-              <span className="block font-medium text-foreground">{PERMISSION_LABELS[permission]}</span>
-              <span className="mt-1 block text-muted-foreground">{PERMISSION_DESCRIPTIONS[permission]}</span>
-            </span>
-          </label>
-        ))}
+        {selectedPermissions.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+            Sin overrides en esta columna.
+          </div>
+        ) : (
+          selectedPermissions.map((permission) => (
+            <div key={`selected-${permission}`} className="rounded-2xl border border-border bg-background px-3 py-3 text-sm">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <span className="block font-medium text-foreground">{PERMISSION_LABELS[permission]}</span>
+                  <span className="mt-1 block text-muted-foreground">{PERMISSION_DESCRIPTIONS[permission]}</span>
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={() => onRemove(permission)} disabled={disabled}>
+                  Remover
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

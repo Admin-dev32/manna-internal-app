@@ -1,7 +1,5 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { getInventoryItems } from '@/services/inventory/queries';
 import type { EventRecord } from '@/types/events';
-import type { InventoryItemRecord } from '@/types/inventory';
 import type { LeadProfileOption } from '@/types/leads';
 import type {
   EventOperationalTemplateApplicationRecord,
@@ -102,10 +100,15 @@ export async function getApplicableOperationalTemplates(eventType: string | null
   const normalizedEventType = normalizeEventType(eventType);
 
   return templates
-    .filter((template) => template.is_active && (!template.event_type || normalizeEventType(template.event_type) === normalizedEventType))
+    .filter((template) => {
+      const templateType = template.service_category ?? template.event_type;
+      return template.is_active && (!templateType || normalizeEventType(templateType) === normalizedEventType);
+    })
     .sort((left, right) => {
-      const leftExact = left.event_type && normalizeEventType(left.event_type) === normalizedEventType ? 0 : 1;
-      const rightExact = right.event_type && normalizeEventType(right.event_type) === normalizedEventType ? 0 : 1;
+      const leftType = left.service_category ?? left.event_type;
+      const rightType = right.service_category ?? right.event_type;
+      const leftExact = leftType && normalizeEventType(leftType) === normalizedEventType ? 0 : 1;
+      const rightExact = rightType && normalizeEventType(rightType) === normalizedEventType ? 0 : 1;
       if (leftExact !== rightExact) return leftExact - rightExact;
       return left.name.localeCompare(right.name, 'es');
     })
@@ -118,12 +121,11 @@ export async function getApplicableOperationalTemplates(eventType: string | null
 }
 
 export async function getOperationalTemplatesPageData() {
-  const [templates, checklistItems, taskItems, materialItems, inventoryItems] = await Promise.all([
+  const [templates, checklistItems, taskItems, materialItems] = await Promise.all([
     getOperationalTemplates(),
     getOperationalTemplateChecklistItems(),
     getOperationalTemplateTaskItems(),
     getOperationalTemplateMaterialItems(),
-    getInventoryItems(),
   ]);
 
   const profiles = await getProfilesMap(
@@ -135,7 +137,6 @@ export async function getOperationalTemplatesPageData() {
     checklistItems,
     taskItems,
     materialItems,
-    inventoryItems: inventoryItems.filter((item) => item.is_active) as InventoryItemRecord[],
     profiles,
   };
 }

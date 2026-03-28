@@ -5,6 +5,7 @@ import { Clock3, Mail, MapPin, PencilLine, Phone, Plus, UserRound } from 'lucide
 
 import { LeadPriorityBadge, LeadStatusBadge } from '@/components/leads/lead-status-badge';
 import { LeadQuotesPanel } from '@/components/quotes/lead-quotes-panel';
+import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { leadPriorityLabels, leadStatusLabels } from '@/config/leads';
@@ -177,6 +178,8 @@ export function LeadDetail({ lead, activities, profiles, quotes, client }: LeadD
           </Card>
         </div>
       </div>
+
+      <RecordTimelineSection entityType="lead" entityId={lead.id} returnPath={`/leads/${lead.id}`} />
     </div>
   );
 }

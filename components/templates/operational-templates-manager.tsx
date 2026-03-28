@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { EVENT_ASSIGNMENT_ROLE_LABELS, EVENT_TASK_PRIORITY_LABELS, EVENT_TASK_STATUS_LABELS } from '@/config/events';
 import {
+  bootstrapOperationalTemplatesAction,
   createOperationalTemplateAction,
   createOperationalTemplateChecklistItemAction,
   createOperationalTemplateMaterialItemAction,
@@ -18,7 +19,6 @@ import {
   updateOperationalTemplateMaterialItemAction,
   updateOperationalTemplateTaskItemAction,
 } from '@/services/operational-templates/actions';
-import type { InventoryItemRecord } from '@/types/inventory';
 import type { LeadProfileOption } from '@/types/leads';
 import type {
   OperationalTemplateChecklistItemRecord,
@@ -32,14 +32,12 @@ export function OperationalTemplatesManager({
   checklistItems,
   taskItems,
   materialItems,
-  inventoryItems,
   profiles,
 }: {
   templates: OperationalTemplateRecord[];
   checklistItems: OperationalTemplateChecklistItemRecord[];
   taskItems: OperationalTemplateTaskItemRecord[];
   materialItems: OperationalTemplateMaterialItemRecord[];
-  inventoryItems: InventoryItemRecord[];
   profiles: Record<string, LeadProfileOption>;
 }) {
   return (
@@ -59,6 +57,9 @@ export function OperationalTemplatesManager({
           <CardDescription>Base mínima para luego sumar checklist, tareas y materiales relacionados.</CardDescription>
         </CardHeader>
         <CardContent>
+          <form action={bootstrapOperationalTemplatesAction} className="mb-4">
+            <Button type="submit" variant="outline">Cargar plantillas iniciales de Manna Snack Bars</Button>
+          </form>
           <form action={createOperationalTemplateAction} className="grid gap-4 xl:grid-cols-[1.1fr_1fr_auto]">
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Nombre</label>
@@ -66,7 +67,7 @@ export function OperationalTemplatesManager({
             </div>
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Tipo de evento / categoría</label>
-              <Input name="event_type" placeholder="Opcional. Si queda vacío, sirve como genérica." />
+              <Input name="service_category" placeholder="Ej. mini-pancake-bar" />
             </div>
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Estado</label>
@@ -80,9 +81,14 @@ export function OperationalTemplatesManager({
               </select>
             </div>
             <div className="space-y-2 xl:col-span-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Descripción operativa corta</label>
+              <Textarea name="description" rows={2} placeholder="Descripción breve del servicio/bar." />
+            </div>
+            <div className="space-y-2 xl:col-span-2">
               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Notas</label>
               <Textarea name="note" rows={3} placeholder="Notas opcionales sobre cuándo usar la plantilla o cómo adaptarla." />
             </div>
+            <input name="event_type" type="hidden" value="" />
             <div className="flex items-end">
               <Button type="submit" className="w-full">Crear plantilla</Button>
             </div>
@@ -102,7 +108,7 @@ export function OperationalTemplatesManager({
             <CardHeader>
               <CardTitle>{template.name}</CardTitle>
               <CardDescription>
-                {template.event_type ? `Enfoque: ${template.event_type}.` : 'Plantilla genérica.'} Checklist: {templateChecklistItems.length} · Tareas: {templateTaskItems.length} · Materiales: {templateMaterialItems.length}
+                {template.service_category ? `Servicio/categoría: ${template.service_category}.` : 'Plantilla genérica.'} Checklist: {templateChecklistItems.length} · Tareas: {templateTaskItems.length} · Materiales: {templateMaterialItems.length}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -113,7 +119,7 @@ export function OperationalTemplatesManager({
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Tipo de evento / categoría</label>
-                  <Input name="event_type" defaultValue={template.event_type ?? ''} placeholder="Opcional" />
+                  <Input name="service_category" defaultValue={template.service_category ?? template.event_type ?? ''} placeholder="Opcional" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Estado</label>
@@ -127,9 +133,14 @@ export function OperationalTemplatesManager({
                   </select>
                 </div>
                 <div className="space-y-2 xl:col-span-2">
+                  <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Descripción operativa corta</label>
+                  <Textarea name="description" rows={2} defaultValue={template.description ?? ''} />
+                </div>
+                <div className="space-y-2 xl:col-span-2">
                   <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Notas</label>
                   <Textarea name="note" rows={3} defaultValue={template.note ?? ''} />
                 </div>
+                <input name="event_type" type="hidden" value={template.service_category ?? template.event_type ?? ''} />
                 <div className="flex items-end">
                   <Button type="submit" className="w-full">Guardar base</Button>
                 </div>
@@ -138,7 +149,7 @@ export function OperationalTemplatesManager({
               <div className="grid gap-6 xl:grid-cols-3">
                 <TemplateChecklistColumn templateId={template.id} items={templateChecklistItems} />
                 <TemplateTasksColumn templateId={template.id} items={templateTaskItems} />
-                <TemplateMaterialsColumn templateId={template.id} items={templateMaterialItems} inventoryItems={inventoryItems} />
+                <TemplateMaterialsColumn templateId={template.id} items={templateMaterialItems} />
               </div>
 
               <div className="grid gap-2 rounded-2xl bg-muted/40 px-4 py-3 text-xs text-muted-foreground md:grid-cols-2">
@@ -172,6 +183,14 @@ function TemplateChecklistColumn({
           <form action={updateOperationalTemplateChecklistItemAction.bind(null, templateId, item.id)} className="space-y-3">
             <Input name="label" defaultValue={item.label} />
             <Input name="description" defaultValue={item.description ?? ''} placeholder="Descripción opcional" />
+            <select
+              name="is_required"
+              defaultValue={item.is_required ? 'true' : 'false'}
+              className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <option value="true">Requerido</option>
+              <option value="false">Opcional</option>
+            </select>
             <Input name="sort_order" type="number" min="0" defaultValue={item.sort_order} />
             <div className="flex gap-2">
               <Button type="submit" className="flex-1">Guardar</Button>
@@ -189,6 +208,14 @@ function TemplateChecklistColumn({
       <form action={createOperationalTemplateChecklistItemAction.bind(null, templateId)} className="space-y-3 rounded-2xl border border-dashed border-border bg-background p-3">
         <Input name="label" placeholder="Nuevo ítem de checklist" />
         <Input name="description" placeholder="Descripción opcional" />
+        <select
+          name="is_required"
+          defaultValue="true"
+          className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <option value="true">Requerido</option>
+          <option value="false">Opcional</option>
+        </select>
         <Input name="sort_order" type="number" min="0" defaultValue={100} />
         <Button type="submit" className="w-full">Agregar checklist</Button>
       </form>
@@ -244,6 +271,7 @@ function TemplateTasksColumn({
               ))}
             </select>
             <Input name="due_hours_before_event" type="number" min="0" defaultValue={item.due_hours_before_event ?? ''} placeholder="Horas antes del evento" />
+            <Input name="suggested_phase" defaultValue={item.suggested_phase ?? ''} placeholder="Fase sugerida (opcional)" />
             <Input name="sort_order" type="number" min="0" defaultValue={item.sort_order} />
             <Input name="internal_note" defaultValue={item.internal_note ?? ''} placeholder="Nota interna opcional" />
             <Button type="submit" className="w-full">Guardar</Button>
@@ -289,6 +317,7 @@ function TemplateTasksColumn({
           ))}
         </select>
         <Input name="due_hours_before_event" type="number" min="0" placeholder="Horas antes del evento" />
+        <Input name="suggested_phase" placeholder="Fase sugerida (opcional)" />
         <Input name="sort_order" type="number" min="0" defaultValue={100} />
         <Input name="internal_note" placeholder="Nota interna opcional" />
         <Button type="submit" className="w-full">Agregar tarea</Button>
@@ -300,11 +329,9 @@ function TemplateTasksColumn({
 function TemplateMaterialsColumn({
   templateId,
   items,
-  inventoryItems,
 }: {
   templateId: string;
   items: OperationalTemplateMaterialItemRecord[];
-  inventoryItems: InventoryItemRecord[];
 }) {
   return (
     <div className="space-y-4 rounded-3xl border border-border bg-muted/20 p-4">
@@ -316,20 +343,19 @@ function TemplateMaterialsColumn({
       {items.map((item) => (
         <div key={item.id} className="rounded-2xl border border-border bg-background p-3">
           <form action={updateOperationalTemplateMaterialItemAction.bind(null, templateId, item.id)} className="space-y-3">
-            <select
-              name="inventory_item_id"
-              defaultValue={item.inventory_item_id}
-              className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              {inventoryItems.map((inventoryItem) => (
-                <option key={inventoryItem.id} value={inventoryItem.id}>
-                  {inventoryItem.name} · {inventoryItem.unit}
-                </option>
-              ))}
-            </select>
-            <Input name="quantity_required" type="number" min="0.01" step="0.01" defaultValue={Number(item.quantity_required)} />
+            <Input name="name" defaultValue={item.name} placeholder="Nombre del material o insumo" />
+            <Input name="material_type" defaultValue={item.material_type ?? ''} placeholder="Tipo de material (opcional)" />
             <Input name="sort_order" type="number" min="0" defaultValue={item.sort_order} />
             <Input name="note" defaultValue={item.note ?? ''} placeholder="Nota opcional" />
+            <Input name="unknowns" defaultValue={item.unknowns ?? ''} placeholder="Dato pendiente por definir" />
+            <select
+              name="pending_definition"
+              defaultValue={item.pending_definition ? 'true' : 'false'}
+              className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <option value="false">Definido</option>
+              <option value="true">Pendiente por definir</option>
+            </select>
             <Button type="submit" className="w-full">Guardar</Button>
           </form>
           <form action={removeOperationalTemplateMaterialItemAction.bind(null, templateId, item.id)} className="mt-2">
@@ -342,20 +368,19 @@ function TemplateMaterialsColumn({
       ))}
 
       <form action={createOperationalTemplateMaterialItemAction.bind(null, templateId)} className="space-y-3 rounded-2xl border border-dashed border-border bg-background p-3">
-        <select
-          name="inventory_item_id"
-          defaultValue={inventoryItems[0]?.id ?? ''}
-          className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          {inventoryItems.map((inventoryItem) => (
-            <option key={inventoryItem.id} value={inventoryItem.id}>
-              {inventoryItem.name} · {inventoryItem.unit}
-            </option>
-          ))}
-        </select>
-        <Input name="quantity_required" type="number" min="0.01" step="0.01" placeholder="Cantidad requerida" />
+        <Input name="name" placeholder="Nombre de material/insumo base" />
+        <Input name="material_type" placeholder="Tipo de material (opcional)" />
         <Input name="sort_order" type="number" min="0" defaultValue={100} />
         <Input name="note" placeholder="Nota opcional" />
+        <Input name="unknowns" placeholder="Dato pendiente por definir (opcional)" />
+        <select
+          name="pending_definition"
+          defaultValue="false"
+          className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <option value="false">Definido</option>
+          <option value="true">Pendiente por definir</option>
+        </select>
         <Button type="submit" className="w-full">Agregar material</Button>
       </form>
     </div>

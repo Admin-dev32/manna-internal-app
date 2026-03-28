@@ -3,6 +3,9 @@ import type { EventAssignmentRole, EventTaskPriority, EventTaskStatus } from '@/
 export interface OperationalTemplateRecord {
   id: string;
   name: string;
+  slug: string;
+  description: string | null;
+  service_category: string | null;
   event_type: string | null;
   note: string | null;
   is_active: boolean;
@@ -17,6 +20,7 @@ export interface OperationalTemplateChecklistItemRecord {
   template_id: string;
   label: string;
   description: string | null;
+  is_required: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -27,6 +31,9 @@ export interface OperationalTemplateTaskItemRecord {
   template_id: string;
   title: string;
   description: string | null;
+  suggested_priority: EventTaskPriority;
+  suggested_phase: string | null;
+  suggested_role: EventAssignmentRole | null;
   priority: EventTaskPriority;
   default_status: EventTaskStatus;
   assignment_role_hint: EventAssignmentRole | null;
@@ -40,9 +47,13 @@ export interface OperationalTemplateTaskItemRecord {
 export interface OperationalTemplateMaterialItemRecord {
   id: string;
   template_id: string;
-  inventory_item_id: string;
-  quantity_required: number;
+  name: string;
+  material_type: string | null;
   note: string | null;
+  pending_definition: boolean;
+  unknowns: string | null;
+  inventory_item_id: string | null;
+  quantity_required: number | null;
   sort_order: number;
   created_at: string;
   updated_at: string;

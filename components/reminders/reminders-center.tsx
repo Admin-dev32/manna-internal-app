@@ -1,11 +1,15 @@
+'use client';
+
 import type { Route } from 'next';
 import Link from 'next/link';
-import { BellRing, CalendarRange, ClipboardList, Sparkles, TriangleAlert, UsersRound } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { BellRing, CalendarRange, ClipboardList, MessageSquareMore, Sparkles, TriangleAlert, UsersRound } from 'lucide-react';
 
 import { ReminderAreaBadge, ReminderSeverityBadge, ReminderTimingBadge } from '@/components/reminders/reminder-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { markAllInternalMentionNotificationsReadAction, markInternalMentionNotificationReadAction } from '@/services/internal-communication/actions';
 import type { ReminderArea, ReminderCenterData } from '@/types/reminders';
 
 function formatDateTime(value: string | null) {
@@ -17,9 +21,25 @@ function formatDateTime(value: string | null) {
   }).format(new Date(value));
 }
 
-const SECTION_ORDER: ReminderArea[] = ['lead', 'task', 'pre_event', 'event'];
+const SECTION_ORDER: ReminderArea[] = ['lead', 'task', 'pre_event', 'event', 'communication'];
 
 export function RemindersCenter({ data }: { data: ReminderCenterData }) {
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'unread' | 'mentions' | 'reminders'>('all');
+  const [areaFilter, setAreaFilter] = useState<ReminderArea | 'all'>('all');
+
+  const filteredItems = useMemo(() => {
+    return data.items.filter((item) => {
+      if (scopeFilter === 'unread' && item.channel === 'mention' && item.isRead) return false;
+      if (scopeFilter === 'unread' && item.channel !== 'mention') return false;
+      if (scopeFilter === 'mentions' && item.channel !== 'mention') return false;
+      if (scopeFilter === 'reminders' && item.channel !== 'reminder') return false;
+      if (areaFilter !== 'all' && item.area !== areaFilter) return false;
+      return true;
+    });
+  }, [areaFilter, data.items, scopeFilter]);
+
+  const unreadMentionCount = data.items.filter((item) => item.channel === 'mention' && !item.isRead).length;
+
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-4 rounded-[2rem] border border-border bg-gradient-to-br from-slate-950 via-slate-900 to-amber-950 p-6 text-white shadow-panel sm:p-8">
@@ -50,8 +70,37 @@ export function RemindersCenter({ data }: { data: ReminderCenterData }) {
               <CardDescription>Ordenado por vencidos, hoy, incompletos críticos y luego próximos.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {data.items.length > 0 ? (
-                data.items.map((item) => (
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-muted/30 px-3 py-3">
+                <select
+                  value={scopeFilter}
+                  onChange={(event) => setScopeFilter(event.target.value as 'all' | 'unread' | 'mentions' | 'reminders')}
+                  className="flex h-9 rounded-xl border border-input bg-background px-3 text-xs"
+                >
+                  <option value="all">Todas</option>
+                  <option value="unread">No leídas</option>
+                  <option value="mentions">Menciones</option>
+                  <option value="reminders">Recordatorios</option>
+                </select>
+                <select
+                  value={areaFilter}
+                  onChange={(event) => setAreaFilter(event.target.value as ReminderArea | 'all')}
+                  className="flex h-9 rounded-xl border border-input bg-background px-3 text-xs"
+                >
+                  <option value="all">Todos los módulos</option>
+                  {SECTION_ORDER.map((area) => (
+                    <option key={area} value={area}>{area}</option>
+                  ))}
+                </select>
+                <Badge variant="outline">Menciones no leídas: {unreadMentionCount}</Badge>
+                {unreadMentionCount > 0 ? (
+                  <form action={markAllInternalMentionNotificationsReadAction.bind(null, '/notificaciones')}>
+                    <Button type="submit" size="sm" variant="outline">Marcar menciones como leídas</Button>
+                  </form>
+                ) : null}
+              </div>
+
+              {filteredItems.length > 0 ? (
+                filteredItems.map((item) => (
                   <div key={item.id} className="rounded-3xl border border-border bg-background p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-2">
@@ -59,6 +108,14 @@ export function RemindersCenter({ data }: { data: ReminderCenterData }) {
                           <ReminderTimingBadge timing={item.timing} />
                           <ReminderAreaBadge area={item.area} />
                           <ReminderSeverityBadge severity={item.severity} />
+                          <Badge variant={item.channel === 'mention' ? 'warning' : 'outline'}>
+                            {item.channel === 'mention' ? 'Mención' : 'Recordatorio'}
+                          </Badge>
+                          {item.channel === 'mention' ? (
+                            <Badge variant={item.isRead ? 'success' : 'warning'}>
+                              {item.isRead ? 'Leída' : 'No leída'}
+                            </Badge>
+                          ) : null}
                         </div>
                         <div>
                           <p className="font-semibold text-foreground">{item.title}</p>
@@ -69,6 +126,11 @@ export function RemindersCenter({ data }: { data: ReminderCenterData }) {
                         <Link href={item.href as Route}>Ir al detalle</Link>
                       </Button>
                     </div>
+                    {item.channel === 'mention' && item.mentionNotificationId && !item.isRead ? (
+                      <form className="mt-3" action={markInternalMentionNotificationReadAction.bind(null, item.mentionNotificationId, '/notificaciones')}>
+                        <Button type="submit" variant="outline" size="sm">Marcar como leída</Button>
+                      </form>
+                    ) : null}
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                       <Badge variant="outline">{item.entityLabel}</Badge>
                       <Badge variant="outline">{formatDateTime(item.dueAt)}</Badge>
@@ -158,6 +220,7 @@ function ModuleRow({ area, count }: { area: ReminderArea; count: number }) {
     task: { label: 'Tareas', icon: ClipboardList },
     pre_event: { label: 'Reservas', icon: CalendarRange },
     event: { label: 'Eventos', icon: BellRing },
+    communication: { label: 'Comunicación', icon: MessageSquareMore },
   } as const;
   const areaConfig = configByArea[area];
   const Icon = areaConfig.icon;

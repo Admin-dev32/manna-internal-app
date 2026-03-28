@@ -105,6 +105,14 @@ export const navigationItems: NavigationItem[] = [
     matchPrefixes: ['/notificaciones'],
   },
   {
+    href: '/comunicacion',
+    label: 'Comunicación',
+    description: 'Canales internos de coordinación y seguimiento operativo.',
+    icon: 'comunicacion',
+    permission: 'communication.view',
+    matchPrefixes: ['/comunicacion'],
+  },
+  {
     href: '/inventario',
     label: 'Inventario',
     description: 'Materiales, stock actual y necesidades ligadas a eventos.',

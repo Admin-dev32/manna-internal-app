@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ArrowLeft, CheckCircle2, PencilLine, ReceiptText, UserPlus, XCircle } from 'lucide-react';
 
 import { QuoteFinancialSheet } from '@/components/finance/quote-financial-sheet';
+import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
 import { convertLeadToClientAction } from '@/services/clients/actions';
 import { acceptQuoteAction, rejectQuoteAction } from '@/services/quotes/actions';
 import { QuoteStatusBadge } from '@/components/quotes/quote-status-badge';
@@ -194,6 +195,8 @@ export function QuoteDetail({
           canManage
         />
       ) : null}
+
+      <RecordTimelineSection entityType="quote" entityId={quote.id} returnPath={`/cotizaciones/${quote.id}`} />
     </div>
   );
 }

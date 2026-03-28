@@ -1,5 +1,6 @@
 import { AlertCircle, CheckCircle2, ClipboardList, Clock3, PlayCircle } from 'lucide-react';
 
+import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -230,6 +231,15 @@ export function EventTasksSection({
                             <span>Última edición: <strong className="text-foreground">{updatedByProfile?.full_name ?? 'Usuario interno'}</strong></span>
                             <span>Creada: <strong className="text-foreground">{formatDateTime(task.created_at)}</strong></span>
                             <span>Editada: <strong className="text-foreground">{formatDateTime(task.updated_at)}</strong></span>
+                          </div>
+
+                          <div className="mt-4">
+                            <RecordTimelineSection
+                              entityType="event_task"
+                              entityId={task.id}
+                              returnPath={`/eventos/${eventId}`}
+                              title="Comentarios de tarea"
+                            />
                           </div>
                         </div>
                       );

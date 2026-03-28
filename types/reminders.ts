@@ -1,4 +1,4 @@
-export const REMINDER_AREAS = ['lead', 'task', 'pre_event', 'event'] as const;
+export const REMINDER_AREAS = ['lead', 'task', 'pre_event', 'event', 'communication'] as const;
 export const REMINDER_TIMINGS = ['overdue', 'today', 'upcoming', 'incomplete'] as const;
 export const REMINDER_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
 
@@ -8,6 +8,7 @@ export type ReminderSeverity = (typeof REMINDER_SEVERITIES)[number];
 
 export interface ReminderItem {
   id: string;
+  channel: 'mention' | 'reminder';
   area: ReminderArea;
   timing: ReminderTiming;
   severity: ReminderSeverity;
@@ -18,6 +19,8 @@ export interface ReminderItem {
   dueAt: string | null;
   responsibleLabel: string | null;
   tags: string[];
+  mentionNotificationId?: string;
+  isRead?: boolean;
 }
 
 export interface ReminderSummary {

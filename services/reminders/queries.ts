@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { LEAD_STALE_AFTER_DAYS, REMINDER_UPCOMING_WINDOW_DAYS } from '@/config/reminders';
+import { getMentionNotificationsForCurrentUser } from '@/services/internal-communication/queries';
 import type { ClientRecord } from '@/types/clients';
 import type { EventChecklistItemRecord, EventRecord, EventStaffAssignmentRecord, EventTaskRecord } from '@/types/events';
 import type { EventInventoryRequirementRecord } from '@/types/inventory';
@@ -79,6 +80,7 @@ function buildSummary(items: ReminderItem[]): ReminderSummary {
       task: items.filter((item) => item.area === 'task').length,
       pre_event: items.filter((item) => item.area === 'pre_event').length,
       event: items.filter((item) => item.area === 'event').length,
+      communication: items.filter((item) => item.area === 'communication').length,
     },
   };
 }
@@ -120,6 +122,7 @@ async function getClientsMap(ids: string[]) {
 }
 
 function createReminder({
+  channel = 'reminder',
   id,
   area,
   timing,
@@ -131,8 +134,10 @@ function createReminder({
   dueAt = null,
   responsibleLabel = null,
   tags = [],
-}: Omit<ReminderItem, 'dueAt' | 'responsibleLabel' | 'tags'> & Pick<ReminderItem, 'href'> & Partial<Pick<ReminderItem, 'dueAt' | 'responsibleLabel' | 'tags'>>) {
-  return { id, area, timing, severity, title, description, entityLabel, href, dueAt, responsibleLabel, tags } satisfies ReminderItem;
+  mentionNotificationId,
+  isRead,
+}: Omit<ReminderItem, 'dueAt' | 'responsibleLabel' | 'tags' | 'channel'> & Pick<ReminderItem, 'href'> & Partial<Pick<ReminderItem, 'dueAt' | 'responsibleLabel' | 'tags' | 'channel' | 'mentionNotificationId' | 'isRead'>>) {
+  return { id, channel, area, timing, severity, title, description, entityLabel, href, dueAt, responsibleLabel, tags, mentionNotificationId, isRead } satisfies ReminderItem;
 }
 
 function buildLeadReminders(leads: LeadRecord[], profiles: Record<string, LeadProfileOption>) {
@@ -564,7 +569,11 @@ export async function getRemindersCenterData(): Promise<ReminderCenterData> {
     ),
   ];
 
-  const [clientsById, profiles] = await Promise.all([getClientsMap(clientIds), getProfilesMap(profileIds)]);
+  const [clientsById, profiles, mentionNotifications] = await Promise.all([
+    getClientsMap(clientIds),
+    getProfilesMap(profileIds),
+    getMentionNotificationsForCurrentUser(40, false),
+  ]);
   const eventsById = Object.fromEntries(events.map((event) => [event.id, event])) as Record<string, EventRecord>;
 
   const items = sortReminderItems([
@@ -572,6 +581,22 @@ export async function getRemindersCenterData(): Promise<ReminderCenterData> {
     ...buildTaskReminders({ tasks, eventsById, clientsById, profiles }),
     ...buildPreEventReminders(preEvents, clientsById),
     ...buildEventReminders({ events, clientsById, checklistItems, assignments, inventoryRequirements }),
+    ...mentionNotifications.map((notification) => createReminder({
+      id: `mention-${notification.id}`,
+      channel: 'mention',
+      area: 'communication',
+      timing: 'today',
+      severity: 'medium',
+      title: 'Te mencionaron en un comentario interno',
+      description: 'Revisa el contexto del registro para mantener coordinación del equipo.',
+      entityLabel: notification.entity_type,
+      href: notification.href,
+      dueAt: notification.created_at,
+      responsibleLabel: null,
+      tags: ['@mención', notification.entity_type],
+      mentionNotificationId: notification.id,
+      isRead: notification.is_read,
+    })),
   ]);
 
   return {
