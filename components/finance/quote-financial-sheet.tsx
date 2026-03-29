@@ -15,7 +15,6 @@ import type { EditableFinancialExpense, QuoteFinancialSheetDraft } from '@/types
 
 interface QuoteFinancialSheetProps {
   quoteId: string;
-  initialGrossRevenue: number | string | null;
   draft: QuoteFinancialSheetDraft;
   canManage: boolean;
 }
@@ -28,8 +27,8 @@ function formatPercentage(value: number) {
   return `${value.toFixed(2)}%`;
 }
 
-export function QuoteFinancialSheet({ quoteId, initialGrossRevenue, draft, canManage }: QuoteFinancialSheetProps) {
-  const [grossRevenue, setGrossRevenue] = useState(String(draft.sheet?.gross_revenue ?? initialGrossRevenue ?? ''));
+export function QuoteFinancialSheet({ quoteId, draft, canManage }: QuoteFinancialSheetProps) {
+  const [grossRevenue, setGrossRevenue] = useState(String(draft.sheet?.gross_revenue ?? draft.initialGrossRevenue ?? ''));
   const [taxReservePercentage, setTaxReservePercentage] = useState(String(draft.sheet?.tax_reserve_percentage ?? draft.defaults.taxReservePercentage ?? ''));
   const [salesCommissionPercentage, setSalesCommissionPercentage] = useState(
     String(draft.sheet?.sales_commission_percentage ?? draft.defaults.salesCommissionPercentage ?? ''),
@@ -56,6 +55,9 @@ export function QuoteFinancialSheet({ quoteId, initialGrossRevenue, draft, canMa
         <div className="flex flex-wrap items-center gap-3">
           <Badge className="bg-white/10 text-white">Interno financiero</Badge>
           <Badge variant="secondary">{draft.sheet ? 'Hoja persistida' : 'Pendiente de guardar'}</Badge>
+          <Badge variant="outline" className="border-white/30 bg-white/10 text-white">
+            Base revenue: {draft.revenueBaseSource === 'persisted_sheet' ? 'valor persistido de hoja' : 'total actual de cotización'}
+          </Badge>
         </div>
         <div className="space-y-2">
           <h2 className="text-2xl font-semibold">Hoja financiera interna</h2>
@@ -84,10 +86,10 @@ export function QuoteFinancialSheet({ quoteId, initialGrossRevenue, draft, canMa
           <Card>
             <CardHeader>
               <CardTitle>Bloque 1 — Revenue</CardTitle>
-              <CardDescription>Monto base editable desde el que parte todo el cálculo interno.</CardDescription>
+              <CardDescription>Monto base editable desde el que parte todo el cálculo interno y el net profit.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Gross revenue / total vendido</label>
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Revenue base (gross revenue)</label>
               <Input
                 type="number"
                 min="0"
@@ -169,14 +171,12 @@ export function QuoteFinancialSheet({ quoteId, initialGrossRevenue, draft, canMa
               <CardDescription>Recalcula automáticamente cada vez que cambian revenue, porcentajes o gastos.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <SummaryRow label="Gross revenue" value={formatCurrency(summary.grossRevenue)} />
-              <SummaryRow label={`Tax reserve (${formatPercentage(summary.taxReservePercentage)})`} value={formatCurrency(summary.taxReserve)} />
-              <SummaryRow label="Base after tax" value={formatCurrency(summary.baseAfterTax)} />
-              <SummaryRow
-                label={`Sales commission (${formatPercentage(summary.salesCommissionPercentage)})`}
-                value={formatCurrency(summary.salesCommission)}
-              />
-              <SummaryRow label="Total extra expenses" value={formatCurrency(summary.totalExtraExpenses)} />
+              <SummaryRow label="Revenue base" value={formatCurrency(summary.grossRevenue)} />
+              <SummaryRow label="Tax %" value={formatPercentage(summary.taxReservePercentage)} />
+              <SummaryRow label="Tax amount" value={formatCurrency(summary.taxReserve)} />
+              <SummaryRow label="Comisión %" value={formatPercentage(summary.salesCommissionPercentage)} />
+              <SummaryRow label="Commission amount" value={formatCurrency(summary.salesCommission)} />
+              <SummaryRow label="Total expenses" value={formatCurrency(summary.totalExtraExpenses)} />
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Net profit</p>
                 <p className="mt-2 text-2xl font-semibold text-emerald-900">{formatCurrency(summary.netProfit)}</p>

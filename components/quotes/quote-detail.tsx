@@ -25,6 +25,16 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 }
 
+function formatDiscountLabel(quote: QuoteRecord) {
+  if (quote.discount_value === null || quote.discount_value === '') return 'Sin descuento';
+  return quote.discount_type === 'percentage' ? `${quote.discount_value}%` : formatCurrency(quote.discount_value);
+}
+
+function formatDepositLabel(quote: QuoteRecord) {
+  if (quote.deposit_value === null || quote.deposit_value === '') return 'Sin depósito';
+  return quote.deposit_type === 'percentage' ? `${quote.deposit_value}%` : formatCurrency(quote.deposit_value);
+}
+
 export function QuoteDetail({
   quote,
   lead,
@@ -93,9 +103,13 @@ export function QuoteDetail({
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <InfoItem label="Subtotal" value={formatCurrency(quote.subtotal)} />
+            <InfoItem label="Tipo de descuento" value={quote.discount_type === 'percentage' ? 'Porcentaje' : 'Fijo'} />
+            <InfoItem label="Valor de descuento" value={formatDiscountLabel(quote)} />
             <InfoItem label="Descuento" value={formatCurrency(quote.discount_amount)} />
             <InfoItem label="Promoción" value={quote.promotion_note ?? 'Sin promoción'} />
             <InfoItem label="Total cotizado" value={formatCurrency(quote.total_amount)} />
+            <InfoItem label="Tipo de depósito" value={quote.deposit_type === 'percentage' ? 'Porcentaje' : 'Fijo'} />
+            <InfoItem label="Valor de depósito" value={formatDepositLabel(quote)} />
             <InfoItem label="Depósito esperado" value={formatCurrency(quote.expected_deposit)} />
             <InfoItem label="Saldo estimado" value={formatCurrency(quote.estimated_balance)} />
             <InfoItem label="Fecha de envío" value={formatDate(quote.sent_at)} />
@@ -190,7 +204,6 @@ export function QuoteDetail({
       {canViewFinance && financialSheetDraft ? (
         <QuoteFinancialSheet
           quoteId={quote.id}
-          initialGrossRevenue={quote.total_amount}
           draft={financialSheetDraft}
           canManage
         />

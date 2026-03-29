@@ -66,6 +66,8 @@ export async function getQuoteFinancialSheetDraft(quote: QuoteRecord): Promise<Q
     return {
       sheet: null,
       expenses: settingsResult.expenses.map(mapSettingsExpenseToEditable),
+      initialGrossRevenue: Number(quote.total_amount ?? 0),
+      revenueBaseSource: 'quote_total',
       defaults: {
         settingsId: settingsResult.settings?.id ?? null,
         taxReservePercentage: settingsResult.settings?.default_tax_reserve_percentage ?? null,
@@ -86,6 +88,8 @@ export async function getQuoteFinancialSheetDraft(quote: QuoteRecord): Promise<Q
     return {
       sheet: null,
       expenses: settingsResult.expenses.map(mapSettingsExpenseToEditable),
+      initialGrossRevenue: Number(quote.total_amount ?? 0),
+      revenueBaseSource: 'quote_total',
       defaults: {
         settingsId: settingsResult.settings?.id ?? null,
         taxReservePercentage: settingsResult.settings?.default_tax_reserve_percentage ?? null,
@@ -105,6 +109,8 @@ export async function getQuoteFinancialSheetDraft(quote: QuoteRecord): Promise<Q
     expenses: ((expenseData ?? []) as QuoteFinancialExpenseRecord[])
       .sort((a, b) => a.sort_order - b.sort_order)
       .map(mapSettingsExpenseToEditable),
+    initialGrossRevenue: Number(sheet.gross_revenue ?? 0),
+    revenueBaseSource: 'persisted_sheet',
     defaults: {
       settingsId: sheet.defaults_source_settings_id,
       taxReservePercentage: settingsResult.settings?.default_tax_reserve_percentage ?? null,

@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation';
 import { requireActiveSession } from '@/lib/auth/guards';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { QuoteFormState } from '@/services/quotes/form-state';
-import type { QuoteStatus } from '@/types/quotes';
+import type { QuoteDepositType, QuoteDiscountType, QuoteStatus } from '@/types/quotes';
 
 function parseOptionalString(value: FormDataEntryValue | null) {
   const normalized = String(value ?? '').trim();
@@ -30,26 +30,57 @@ function parseOptionalDateTime(value: FormDataEntryValue | null) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function clampMoney(value: number) {
+  return Math.round(Math.max(value, 0) * 100) / 100;
+}
+
+function normalizeDiscountType(value: FormDataEntryValue | null): QuoteDiscountType {
+  return String(value ?? 'fixed') === 'percentage' ? 'percentage' : 'fixed';
+}
+
+function normalizeDepositType(value: FormDataEntryValue | null): QuoteDepositType {
+  return String(value ?? 'fixed') === 'percentage' ? 'percentage' : 'fixed';
+}
+
 function sanitizeQuotePayload(formData: FormData, actorId: string) {
   const status = (parseOptionalString(formData.get('status')) ?? 'borrador') as QuoteStatus;
-  const totalAmount = parseOptionalNumber(formData.get('total_amount'));
-  const expectedDeposit = parseOptionalNumber(formData.get('expected_deposit'));
-  const estimatedBalanceInput = parseOptionalNumber(formData.get('estimated_balance'));
+  const subtotal = parseOptionalNumber(formData.get('subtotal'));
+  const discountType = normalizeDiscountType(formData.get('discount_type'));
+  const discountValue = parseOptionalNumber(formData.get('discount_value')) ?? 0;
+  const depositType = normalizeDepositType(formData.get('deposit_type'));
+  const depositValue = parseOptionalNumber(formData.get('deposit_value')) ?? 0;
 
-  if (totalAmount === null || totalAmount < 0) {
-    return { error: 'El total cotizado es obligatorio.' } as const;
+  if (subtotal === null || subtotal < 0) {
+    return { error: 'El subtotal es obligatorio.' } as const;
   }
 
-  const estimatedBalance =
-    estimatedBalanceInput ?? (expectedDeposit !== null ? Math.max(totalAmount - expectedDeposit, 0) : totalAmount);
+  if (discountValue < 0) {
+    return { error: 'El valor de descuento no puede ser negativo.' } as const;
+  }
+
+  if (depositValue < 0) {
+    return { error: 'El valor de depósito no puede ser negativo.' } as const;
+  }
+
+  const rawDiscountAmount = discountType === 'percentage' ? (subtotal * discountValue) / 100 : discountValue;
+  const discountAmount = clampMoney(Math.min(rawDiscountAmount, subtotal));
+  const totalAmount = clampMoney(subtotal - discountAmount);
+
+  const rawExpectedDeposit = depositType === 'percentage' ? (totalAmount * depositValue) / 100 : depositValue;
+  const expectedDeposit = clampMoney(Math.min(rawExpectedDeposit, totalAmount));
+  const estimatedBalance = clampMoney(totalAmount - expectedDeposit);
 
   return {
     data: {
       status,
-      subtotal: parseOptionalNumber(formData.get('subtotal')),
-      discount_amount: parseOptionalNumber(formData.get('discount_amount')),
+      subtotal: clampMoney(subtotal),
+      discount_type: discountType,
+      discount_value: discountValue,
+      discount_amount: discountAmount,
       promotion_note: parseOptionalString(formData.get('promotion_note')),
       total_amount: totalAmount,
+      deposit_type: depositType,
+      deposit_value: depositValue,
       expected_deposit: expectedDeposit,
       estimated_balance: estimatedBalance,
       notes: parseOptionalString(formData.get('notes')),

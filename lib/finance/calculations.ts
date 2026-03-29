@@ -12,6 +12,10 @@ function toFiniteNumber(value: number | string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function toNonNegativeNumber(value: number | string | null | undefined) {
+  return Math.max(toFiniteNumber(value), 0);
+}
+
 function roundCurrency(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -28,11 +32,11 @@ export function calculateFinancialSummary(input: {
   salesCommissionPercentage: number | string | null | undefined;
   expenses: EditableFinancialExpense[];
 }): FinancialCalculationSummary {
-  const grossRevenue = roundCurrency(toFiniteNumber(input.grossRevenue));
-  const taxReservePercentage = toFiniteNumber(input.taxReservePercentage);
+  const grossRevenue = roundCurrency(toNonNegativeNumber(input.grossRevenue));
+  const taxReservePercentage = toNonNegativeNumber(input.taxReservePercentage);
   const taxReserve = roundCurrency(grossRevenue * (taxReservePercentage / 100));
   const baseAfterTax = roundCurrency(grossRevenue - taxReserve);
-  const salesCommissionPercentage = toFiniteNumber(input.salesCommissionPercentage);
+  const salesCommissionPercentage = toNonNegativeNumber(input.salesCommissionPercentage);
   const salesCommission = roundCurrency(baseAfterTax * (salesCommissionPercentage / 100));
   const afterTaxAndCommission = roundCurrency(baseAfterTax - salesCommission);
 

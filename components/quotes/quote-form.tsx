@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useActionState, useMemo } from 'react';
+import { useActionState, useMemo, useState } from 'react';
 import { CircleAlert, ReceiptText } from 'lucide-react';
 
 import { AuthFeedback } from '@/components/auth/auth-feedback';
@@ -15,7 +15,7 @@ import { quoteStatusOptions } from '@/config/quotes';
 import { initialQuoteFormState } from '@/services/quotes/form-state';
 import type { QuoteFormState } from '@/services/quotes/form-state';
 import type { LeadRecord } from '@/types/leads';
-import type { QuoteRecord, QuoteStatus } from '@/types/quotes';
+import type { QuoteDepositType, QuoteDiscountType, QuoteRecord, QuoteStatus } from '@/types/quotes';
 
 interface QuoteFormProps {
   action: (state: QuoteFormState, formData: FormData) => Promise<QuoteFormState>;
@@ -32,14 +32,52 @@ function formatDateTimeLocal(value: string | null) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
+function parseNumber(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundMoney(value: number) {
+  return Math.round(Math.max(value, 0) * 100) / 100;
+}
+
+function toInputValue(value: number) {
+  return Number.isFinite(value) ? value.toFixed(2) : '0.00';
+}
+
 export function QuoteForm({ action, lead, quote, submitLabel }: QuoteFormProps) {
   const [state, formAction] = useActionState(action, initialQuoteFormState);
   const initialStatus = (quote?.status ?? 'borrador') as QuoteStatus;
-  const estimatedBalance = useMemo(() => {
-    const total = Number(quote?.total_amount ?? 0);
-    const deposit = Number(quote?.expected_deposit ?? 0);
-    return total && Number.isFinite(total) ? Math.max(total - deposit, 0).toFixed(2) : '';
-  }, [quote?.expected_deposit, quote?.total_amount]);
+  const [subtotalInput, setSubtotalInput] = useState(String(quote?.subtotal ?? lead.quoted_total ?? '0'));
+  const [discountType, setDiscountType] = useState<QuoteDiscountType>((quote?.discount_type ?? 'fixed') as QuoteDiscountType);
+  const [discountValueInput, setDiscountValueInput] = useState(
+    String(quote?.discount_value ?? (quote?.discount_amount ?? '0')),
+  );
+  const [depositType, setDepositType] = useState<QuoteDepositType>((quote?.deposit_type ?? 'fixed') as QuoteDepositType);
+  const [depositValueInput, setDepositValueInput] = useState(
+    String(quote?.deposit_value ?? (quote?.expected_deposit ?? '0')),
+  );
+
+  const calculations = useMemo(() => {
+    const subtotal = roundMoney(parseNumber(subtotalInput));
+    const discountValue = Math.max(parseNumber(discountValueInput), 0);
+    const rawDiscountAmount = discountType === 'percentage' ? (subtotal * discountValue) / 100 : discountValue;
+    const discountAmount = roundMoney(Math.min(rawDiscountAmount, subtotal));
+    const totalAmount = roundMoney(subtotal - discountAmount);
+
+    const depositValue = Math.max(parseNumber(depositValueInput), 0);
+    const rawDepositAmount = depositType === 'percentage' ? (totalAmount * depositValue) / 100 : depositValue;
+    const expectedDeposit = roundMoney(Math.min(rawDepositAmount, totalAmount));
+    const estimatedBalance = roundMoney(totalAmount - expectedDeposit);
+
+    return {
+      subtotal,
+      discountAmount,
+      totalAmount,
+      expectedDeposit,
+      estimatedBalance,
+    };
+  }, [depositType, depositValueInput, discountType, discountValueInput, subtotalInput]);
 
   return (
     <form action={formAction} className="space-y-6">
@@ -63,33 +101,129 @@ export function QuoteForm({ action, lead, quote, submitLabel }: QuoteFormProps) 
       <Card>
         <CardHeader>
           <CardTitle>Resumen comercial</CardTitle>
-          <CardDescription>Primera versión útil para registrar montos, estado y seguimiento básico de la propuesta.</CardDescription>
+          <CardDescription>El sistema calcula automáticamente descuento, total, depósito y saldo a partir de tus entradas.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <Field label="Estado de cotización" required>
-            <SelectField name="status" defaultValue={initialStatus} options={quoteStatusOptions} />
-          </Field>
-          <Field label="Fecha de envío">
-            <Input name="sent_at" type="datetime-local" defaultValue={formatDateTimeLocal(quote?.sent_at ?? null)} />
-          </Field>
-          <Field label="Subtotal">
-            <Input name="subtotal" type="number" min="0" step="0.01" defaultValue={quote?.subtotal?.toString() ?? ''} placeholder="0.00" />
-          </Field>
-          <Field label="Descuento">
-            <Input name="discount_amount" type="number" min="0" step="0.01" defaultValue={quote?.discount_amount?.toString() ?? ''} placeholder="0.00" />
-          </Field>
-          <Field label="Promoción o beneficio aplicado">
-            <Input name="promotion_note" defaultValue={quote?.promotion_note ?? lead.promotion_offered ?? ''} placeholder="Ej. upgrade de barra, 10% por pronto cierre" />
-          </Field>
-          <Field label="Total cotizado" required>
-            <Input name="total_amount" type="number" min="0" step="0.01" defaultValue={quote?.total_amount?.toString() ?? lead.quoted_total?.toString() ?? ''} placeholder="0.00" required />
-          </Field>
-          <Field label="Depósito esperado">
-            <Input name="expected_deposit" type="number" min="0" step="0.01" defaultValue={quote?.expected_deposit?.toString() ?? ''} placeholder="0.00" />
-          </Field>
-          <Field label="Saldo estimado">
-            <Input name="estimated_balance" type="number" min="0" step="0.01" defaultValue={quote?.estimated_balance?.toString() ?? estimatedBalance} placeholder="Se calcula o puedes ajustarlo" />
-          </Field>
+        <CardContent className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Estado de cotización" required>
+              <SelectField name="status" defaultValue={initialStatus} options={quoteStatusOptions} />
+            </Field>
+            <Field label="Fecha de envío">
+              <Input name="sent_at" type="datetime-local" defaultValue={formatDateTimeLocal(quote?.sent_at ?? null)} />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Subtotal base" required>
+              <Input
+                name="subtotal"
+                type="number"
+                min="0"
+                step="0.01"
+                value={subtotalInput}
+                onChange={(event) => setSubtotalInput(event.target.value)}
+                placeholder="0.00"
+                required
+              />
+            </Field>
+            <Field label="Promoción o beneficio aplicado">
+              <Input name="promotion_note" defaultValue={quote?.promotion_note ?? lead.promotion_offered ?? ''} placeholder="Ej. upgrade de barra, 10% por pronto cierre" />
+            </Field>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-muted/20 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Descuento</p>
+            <div className="mt-3 grid gap-4 md:grid-cols-3">
+              <Field label="Tipo de descuento">
+                <select
+                  name="discount_type"
+                  value={discountType}
+                  onChange={(event) => setDiscountType(event.target.value as QuoteDiscountType)}
+                  className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="fixed">Fijo ($)</option>
+                  <option value="percentage">Porcentaje (%)</option>
+                </select>
+              </Field>
+              <Field label={discountType === 'percentage' ? 'Valor de descuento (%)' : 'Valor de descuento ($)'}>
+                <Input
+                  name="discount_value"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={discountValueInput}
+                  onChange={(event) => setDiscountValueInput(event.target.value)}
+                  placeholder="0.00"
+                />
+              </Field>
+              <Field label="Descuento calculado">
+                <Input value={toInputValue(calculations.discountAmount)} readOnly />
+              </Field>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Total final</p>
+            <p className="mt-2 text-xl font-semibold text-emerald-800">${toInputValue(calculations.totalAmount)}</p>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-muted/20 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Depósito y saldo</p>
+            <div className="mt-3 grid gap-4 md:grid-cols-3">
+              <Field label="Tipo de depósito">
+                <select
+                  name="deposit_type"
+                  value={depositType}
+                  onChange={(event) => setDepositType(event.target.value as QuoteDepositType)}
+                  className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="fixed">Fijo ($)</option>
+                  <option value="percentage">Porcentaje (%)</option>
+                </select>
+              </Field>
+              <Field label={depositType === 'percentage' ? 'Valor de depósito (%)' : 'Valor de depósito ($)'}>
+                <Input
+                  name="deposit_value"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={depositValueInput}
+                  onChange={(event) => setDepositValueInput(event.target.value)}
+                  placeholder="0.00"
+                />
+              </Field>
+              <Field label="Depósito calculado">
+                <Input value={toInputValue(calculations.expectedDeposit)} readOnly />
+              </Field>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Field label="Total cotizado (calculado)">
+                <Input value={toInputValue(calculations.totalAmount)} readOnly />
+              </Field>
+              <Field label="Saldo restante (calculado)">
+                <Input value={toInputValue(calculations.estimatedBalance)} readOnly />
+              </Field>
+            </div>
+          </div>
+
+          <input type="hidden" name="discount_amount" value={toInputValue(calculations.discountAmount)} />
+          <input type="hidden" name="total_amount" value={toInputValue(calculations.totalAmount)} />
+          <input type="hidden" name="expected_deposit" value={toInputValue(calculations.expectedDeposit)} />
+          <input type="hidden" name="estimated_balance" value={toInputValue(calculations.estimatedBalance)} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Resumen de cálculo</CardTitle>
+          <CardDescription>Feedback visual para entender cómo se forma el total final de la cotización.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-5">
+          <InfoPill label="Subtotal" value={toInputValue(calculations.subtotal)} />
+          <InfoPill label="Descuento" value={toInputValue(calculations.discountAmount)} />
+          <InfoPill label="Total" value={toInputValue(calculations.totalAmount)} highlight />
+          <InfoPill label="Depósito" value={toInputValue(calculations.expectedDeposit)} />
+          <InfoPill label="Saldo" value={toInputValue(calculations.estimatedBalance)} />
         </CardContent>
       </Card>
 
@@ -107,9 +241,7 @@ export function QuoteForm({ action, lead, quote, submitLabel }: QuoteFormProps) 
           <div className="rounded-2xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
             <div className="flex items-start gap-3">
               <CircleAlert className="mt-0.5 size-4 text-primary" />
-              <p>
-                Esta versión todavía no genera PDF ni plantillas. La cotización queda registrada como base comercial real, conectada al lead y lista para evolucionar.
-              </p>
+              <p>Los cálculos comerciales de esta cotización se actualizan automáticamente al editar subtotal, descuento y depósito.</p>
             </div>
           </div>
         </CardContent>
@@ -125,6 +257,15 @@ export function QuoteForm({ action, lead, quote, submitLabel }: QuoteFormProps) 
         </Button>
       </div>
     </form>
+  );
+}
+
+function InfoPill({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`rounded-2xl border p-4 ${highlight ? 'border-emerald-300 bg-emerald-50' : 'border-border bg-background'}`}>
+      <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${highlight ? 'text-emerald-700' : 'text-primary'}`}>{label}</p>
+      <p className={`mt-2 text-sm font-semibold ${highlight ? 'text-emerald-800' : 'text-foreground'}`}>${value}</p>
+    </div>
   );
 }
 

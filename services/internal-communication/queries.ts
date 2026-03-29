@@ -3,6 +3,7 @@ import type { LeadProfileOption } from '@/types/leads';
 import type {
   InternalCommentEntityType,
   InternalMentionNotification,
+  InternalCommentMention,
   InternalRecordComment,
   RecordTimelineItem,
 } from '@/types/internal-communication';
@@ -123,6 +124,198 @@ function resolveEntityHref(entityType: InternalCommentEntityType, entityId: stri
     default:
       return '/notificaciones';
   }
+}
+
+function getEntityTypeLabel(entityType: InternalCommentEntityType) {
+  switch (entityType) {
+    case 'lead':
+      return 'Lead';
+    case 'quote':
+      return 'Cotización';
+    case 'client':
+      return 'Cliente';
+    case 'pre_event':
+      return 'Reserva';
+    case 'event':
+      return 'Evento';
+    case 'event_task':
+      return 'Tarea';
+    default:
+      return 'Registro';
+  }
+}
+
+async function getEntityLabelMap(entityType: InternalCommentEntityType, entityIds: string[]) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || entityIds.length === 0) return {} as Record<string, string>;
+
+  const uniqueIds = [...new Set(entityIds)];
+
+  if (entityType === 'lead') {
+    const { data } = await supabase.from('leads').select('id, full_name').in('id', uniqueIds);
+    const rows = (data ?? []) as Array<{ id: string; full_name: string | null }>;
+    return Object.fromEntries(rows.map((item) => [String(item.id), String(item.full_name ?? 'Lead')])) as Record<string, string>;
+  }
+
+  if (entityType === 'quote') {
+    const { data } = await supabase.from('quotes').select('id').in('id', uniqueIds);
+    const rows = (data ?? []) as Array<{ id: string }>;
+    return Object.fromEntries(rows.map((item) => [String(item.id), `Cotización #${String(item.id).slice(0, 8)}`])) as Record<string, string>;
+  }
+
+  if (entityType === 'client') {
+    const { data } = await supabase.from('clients').select('id, full_name').in('id', uniqueIds);
+    const rows = (data ?? []) as Array<{ id: string; full_name: string | null }>;
+    return Object.fromEntries(rows.map((item) => [String(item.id), String(item.full_name ?? 'Cliente')])) as Record<string, string>;
+  }
+
+  if (entityType === 'pre_event') {
+    const { data } = await supabase.from('pre_events').select('id, status').in('id', uniqueIds);
+    const rows = (data ?? []) as Array<{ id: string; status: string | null }>;
+    return Object.fromEntries(rows.map((item) => [String(item.id), `Reserva #${String(item.id).slice(0, 8)} · ${String(item.status ?? 'pendiente')}`])) as Record<string, string>;
+  }
+
+  if (entityType === 'event') {
+    const { data } = await supabase.from('events').select('id, event_type').in('id', uniqueIds);
+    const rows = (data ?? []) as Array<{ id: string; event_type: string | null }>;
+    return Object.fromEntries(
+      rows.map((item) => [String(item.id), String(item.event_type ?? `Evento #${String(item.id).slice(0, 8)}`)]),
+    ) as Record<string, string>;
+  }
+
+  const { data } = await supabase.from('event_tasks').select('id, title').in('id', uniqueIds);
+  const rows = (data ?? []) as Array<{ id: string; title: string | null }>;
+  return Object.fromEntries(rows.map((item) => [String(item.id), String(item.title ?? 'Tarea operativa')])) as Record<string, string>;
+}
+
+export interface CommunicationHubEntry {
+  id: string;
+  entityType: InternalCommentEntityType;
+  entityId: string;
+  entityTypeLabel: string;
+  entityLabel: string;
+  href: string;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+  body: string;
+  mentionCount: number;
+  mentionedUsers: string[];
+}
+
+export interface CommunicationHubFilters {
+  channel: 'all' | 'mentions';
+  module: 'all' | InternalCommentEntityType;
+  timeframe: 'all' | '24h' | '7d';
+}
+
+export async function getCommunicationHubData(filters?: Partial<CommunicationHubFilters>) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return [] as CommunicationHubEntry[];
+  }
+
+  const channel = filters?.channel ?? 'all';
+  const module = filters?.module ?? 'all';
+  const timeframe = filters?.timeframe ?? 'all';
+
+  let commentsQuery = supabase
+    .from('internal_record_comments')
+    .select('id, entity_type, entity_id, body, created_by, created_at')
+    .order('created_at', { ascending: false })
+    .limit(150);
+
+  if (module !== 'all') {
+    commentsQuery = commentsQuery.eq('entity_type', module);
+  }
+
+  if (timeframe === '24h') {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    commentsQuery = commentsQuery.gte('created_at', since);
+  }
+  if (timeframe === '7d') {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    commentsQuery = commentsQuery.gte('created_at', since);
+  }
+
+  const { data: commentRows } = await commentsQuery;
+  const comments = (commentRows ?? []) as Array<Pick<InternalRecordComment, 'id' | 'entity_type' | 'entity_id' | 'body' | 'created_by' | 'created_at'>>;
+
+  if (comments.length === 0) {
+    return [] as CommunicationHubEntry[];
+  }
+
+  const commentIds = comments.map((comment) => comment.id);
+  const { data: mentionRows } = await supabase
+    .from('internal_comment_mentions')
+    .select('id, comment_id, mentioned_profile_id, mention_key, created_at')
+    .in('comment_id', commentIds);
+
+  const mentions = (mentionRows ?? []) as InternalCommentMention[];
+  const mentionsByCommentId = mentions.reduce(
+    (accumulator, mention) => {
+      const existing = accumulator[mention.comment_id] ?? [];
+      existing.push(mention);
+      accumulator[mention.comment_id] = existing;
+      return accumulator;
+    },
+    {} as Record<string, InternalCommentMention[]>,
+  );
+
+  const filteredComments = channel === 'mentions' ? comments.filter((comment) => (mentionsByCommentId[comment.id] ?? []).length > 0) : comments;
+  if (filteredComments.length === 0) {
+    return [] as CommunicationHubEntry[];
+  }
+
+  const authorIds = filteredComments.map((comment) => comment.created_by);
+  const mentionedIds = mentions.flatMap((mention) => mention.mentioned_profile_id);
+  const profiles = await getProfilesMap([...authorIds, ...mentionedIds]);
+
+  const taskIds = filteredComments.filter((comment) => comment.entity_type === 'event_task').map((comment) => comment.entity_id);
+  const eventIdByTaskId = {} as Record<string, string>;
+  if (taskIds.length > 0) {
+    const { data: taskRows } = await supabase.from('event_tasks').select('id, event_id').in('id', [...new Set(taskIds)]);
+    for (const task of taskRows ?? []) {
+      eventIdByTaskId[String(task.id)] = String(task.event_id);
+    }
+  }
+
+  const entityIdsByType = filteredComments.reduce(
+    (accumulator, comment) => {
+      const existing = accumulator[comment.entity_type] ?? [];
+      existing.push(comment.entity_id);
+      accumulator[comment.entity_type] = existing;
+      return accumulator;
+    },
+    {} as Partial<Record<InternalCommentEntityType, string[]>>,
+  );
+
+  const entityLabelMaps = {} as Partial<Record<InternalCommentEntityType, Record<string, string>>>;
+  for (const [entityType, entityIds] of Object.entries(entityIdsByType) as Array<[InternalCommentEntityType, string[]]>) {
+    entityLabelMaps[entityType] = await getEntityLabelMap(entityType, entityIds);
+  }
+
+  return filteredComments.map((comment) => {
+    const commentMentions = mentionsByCommentId[comment.id] ?? [];
+    const mentionedUsers = commentMentions.map((mention) => profiles[mention.mentioned_profile_id]?.full_name ?? 'Usuario interno');
+    const entityTypeLabel = getEntityTypeLabel(comment.entity_type);
+    const entityLabel = entityLabelMaps[comment.entity_type]?.[comment.entity_id] ?? `${entityTypeLabel} #${comment.entity_id.slice(0, 8)}`;
+
+    return {
+      id: comment.id,
+      entityType: comment.entity_type,
+      entityId: comment.entity_id,
+      entityTypeLabel,
+      entityLabel,
+      href: resolveEntityHref(comment.entity_type, comment.entity_id, eventIdByTaskId),
+      authorId: comment.created_by,
+      authorName: profiles[comment.created_by]?.full_name ?? 'Usuario interno',
+      createdAt: comment.created_at,
+      body: comment.body,
+      mentionCount: commentMentions.length,
+      mentionedUsers,
+    } satisfies CommunicationHubEntry;
+  });
 }
 
 export async function getMentionNotificationsForCurrentUser(limit = 20, unreadOnly = false) {

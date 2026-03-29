@@ -67,6 +67,8 @@ export interface EditableFinancialExpense {
 export interface QuoteFinancialSheetDraft {
   sheet: QuoteFinancialSheetRecord | null;
   expenses: EditableFinancialExpense[];
+  initialGrossRevenue: number;
+  revenueBaseSource: 'quote_total' | 'persisted_sheet';
   defaults: {
     settingsId: string | null;
     taxReservePercentage: number | string | null;
