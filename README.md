@@ -2,15 +2,18 @@
 
 Base interna de Manna Snack Bars construida con Next.js App Router, TypeScript, Tailwind CSS y Supabase.
 
-## Qué incluye actualmente
+## Estado actual
 
-- Estructura escalable por `app`, `components`, `features`, `services`, `config`, `types` y `lib`.
-- Layout administrativo mobile-first con sidebar, header, navegación móvil y cierre de sesión visible.
-- Rutas públicas y protegidas con autenticación real preparada para Supabase SSR.
-- Base funcional de roles (`owner`, `manager`, `empleado`) y perfil básico de empleado.
-- SQL inicial para perfiles autenticados y estado activo/inactivo.
+La app ya incluye módulos operativos de:
 
-## Variables de entorno
+- Auth y perfiles internos.
+- Leads, cotizaciones, clientes y reservas.
+- Eventos, staff por evento y tareas.
+- Inventario y finanzas internas.
+- Recordatorios, comunicación interna y plantillas operativas.
+- User management con owner protegido y overrides de permisos.
+
+## Requisitos de entorno
 
 Copia `.env.example` a `.env.local` y completa:
 
@@ -22,13 +25,35 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_AUTH_ENFORCED=true
 ```
 
-## SQL inicial de Supabase
+Notas importantes:
 
-Puedes usar cualquiera de estos archivos según el flujo de trabajo:
+- `NEXT_PUBLIC_AUTH_ENFORCED=true` debe mantenerse en ambientes reales.
+- Si faltan credenciales de Supabase, la app entra en modo demo interno (`isDemoMode`).
 
-- `supabase/migrations/20260319_auth_profiles.sql` para migraciones versionadas.
-- `supabase/sql/initial_auth_profiles.sql` para pegar directamente en Supabase SQL Editor.
+## Levantar local
 
-## Siguiente bloque sugerido
+```bash
+npm install
+npm run typecheck
+npm run dev
+```
 
-Implementar la administración inicial de empleados y permisos base por rol sobre esta autenticación ya conectada.
+Para validación de release local:
+
+```bash
+npm run build
+```
+
+## Preparación de deploy / producción
+
+Se dejó una guía específica para cierre de despliegue en:
+
+- `docs/deploy-production-readiness.md`
+
+Incluye:
+
+- checklist de despliegue
+- orden de migraciones SQL y dependencias
+- bootstrap de owner/admin inicial
+- hardening revisado y riesgos residuales
+- validación final recomendada antes de producción

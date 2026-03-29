@@ -75,3 +75,47 @@ with check (
   auth.uid() is not null
   and updated_by = auth.uid()
 );
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'clients'
+  ) and not exists (
+    select 1
+    from pg_constraint
+    where conname = 'clients_source_quote_id_fkey'
+      and conrelid = 'public.clients'::regclass
+  ) then
+    alter table public.clients
+      add constraint clients_source_quote_id_fkey
+      foreign key (source_quote_id)
+      references public.quotes (id)
+      on delete set null;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'pre_events'
+  ) and not exists (
+    select 1
+    from pg_constraint
+    where conname = 'pre_events_source_quote_id_fkey'
+      and conrelid = 'public.pre_events'::regclass
+  ) then
+    alter table public.pre_events
+      add constraint pre_events_source_quote_id_fkey
+      foreign key (source_quote_id)
+      references public.quotes (id)
+      on delete restrict;
+  end if;
+end;
+$$;

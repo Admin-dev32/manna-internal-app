@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { PreEventStatusBadge } from '@/components/pre-events/pre-event-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { requirePermission } from '@/lib/auth/guards';
 import { getClientsOverviewPageData } from '@/services/clients/queries';
 
 function formatDate(value: string) {
@@ -11,6 +12,7 @@ function formatDate(value: string) {
 }
 
 export default async function ClientesPage() {
+  await requirePermission('crm.view');
   const { clients, preEventsByClientId } = await getClientsOverviewPageData();
 
   return (

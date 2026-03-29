@@ -4,7 +4,7 @@
 create table if not exists public.clients (
   id uuid primary key default gen_random_uuid(),
   lead_id uuid not null unique references public.leads (id) on delete restrict,
-  source_quote_id uuid unique references public.quotes (id) on delete set null,
+  source_quote_id uuid unique,
   full_name text not null,
   phone text,
   email text,

@@ -5,7 +5,7 @@ create table if not exists public.pre_events (
   id uuid primary key default gen_random_uuid(),
   client_id uuid not null references public.clients (id) on delete cascade,
   lead_id uuid references public.leads (id) on delete set null,
-  source_quote_id uuid not null unique references public.quotes (id) on delete restrict,
+  source_quote_id uuid not null unique,
   confirmed_date date,
   confirmed_time time,
   location text,

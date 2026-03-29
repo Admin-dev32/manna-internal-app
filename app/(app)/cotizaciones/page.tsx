@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { QuoteStatusBadge } from '@/components/quotes/quote-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { requirePermission } from '@/lib/auth/guards';
 import { getQuotesOverviewPageData } from '@/services/quotes/queries';
 
 function formatCurrency(value: number | string | null) {
@@ -17,6 +18,7 @@ function formatDate(value: string | null) {
 }
 
 export default async function CotizacionesPage() {
+  await requirePermission('quotes.view');
   const { leads, quotes } = await getQuotesOverviewPageData();
 
   return (

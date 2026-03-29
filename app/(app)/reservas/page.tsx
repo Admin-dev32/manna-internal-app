@@ -1,7 +1,9 @@
 import { PreEventsOperationsBoard } from '@/components/pre-events/pre-events-operations-board';
+import { requirePermission } from '@/lib/auth/guards';
 import { getPreEventsOverviewPageData } from '@/services/pre-events/queries';
 
 export default async function ReservasPage() {
+  await requirePermission('events.view');
   const { clients, preEvents, quotes } = await getPreEventsOverviewPageData();
 
   return (
