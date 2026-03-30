@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { requireActiveSession } from '@/lib/auth/guards';
 import type { LeadProfileOption } from '@/types/leads';
 import type {
   InternalCommentEntityType,
@@ -319,19 +320,21 @@ export async function getCommunicationHubData(filters?: Partial<CommunicationHub
 }
 
 export async function getMentionNotificationsForCurrentUser(limit = 20, unreadOnly = false) {
+  const session = await requireActiveSession();
   const supabase = await createSupabaseServerClient();
-  if (!supabase) return [] as Array<InternalMentionNotification & { href: string }>;
+  if (!supabase || !session.user) return [] as Array<InternalMentionNotification & { href: string }>;
 
   const query = supabase
     .from('internal_mention_notifications')
     .select('*')
+    .eq('profile_id', session.user.id)
     .order('created_at', { ascending: false })
     .limit(limit);
 
   const { data: notifications } = unreadOnly ? await query.eq('is_read', false) : await query;
 
   const mentionRows = (notifications ?? []) as InternalMentionNotification[];
-  const taskIds = mentionRows.filter((row) => row.entity_type === 'event_task').map((row) => row.entity_id);
+  const taskIds = [...new Set(mentionRows.filter((row) => row.entity_type === 'event_task').map((row) => row.entity_id))];
 
   const eventIdByTaskId = {} as Record<string, string>;
   if (taskIds.length > 0) {

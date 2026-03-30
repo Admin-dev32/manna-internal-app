@@ -22,6 +22,14 @@ const SEVERITY_SORT_ORDER: Record<ReminderSeverity, number> = {
   medium: 2,
   low: 3,
 };
+const MENTION_ENTITY_LABELS = {
+  lead: 'Lead',
+  quote: 'Cotización',
+  client: 'Cliente',
+  pre_event: 'Reserva',
+  event: 'Evento',
+  event_task: 'Tarea',
+} as const;
 
 function startOfDay(date = new Date()) {
   const normalized = new Date(date);
@@ -587,13 +595,13 @@ export async function getRemindersCenterData(): Promise<ReminderCenterData> {
       area: 'communication',
       timing: 'today',
       severity: 'medium',
-      title: 'Te mencionaron en un comentario interno',
-      description: 'Revisa el contexto del registro para mantener coordinación del equipo.',
-      entityLabel: notification.entity_type,
+      title: `Te mencionaron en ${MENTION_ENTITY_LABELS[notification.entity_type]}`,
+      description: 'Revisa el comentario y responde si hace falta para mantener coordinación del equipo.',
+      entityLabel: `${MENTION_ENTITY_LABELS[notification.entity_type]} #${notification.entity_id.slice(0, 8)}`,
       href: notification.href,
       dueAt: notification.created_at,
       responsibleLabel: null,
-      tags: ['@mención', notification.entity_type],
+      tags: ['@mención', MENTION_ENTITY_LABELS[notification.entity_type]],
       mentionNotificationId: notification.id,
       isRead: notification.is_read,
     })),
