@@ -8,6 +8,7 @@ import { requireActiveSession } from '@/lib/auth/guards';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { QuoteFormState } from '@/services/quotes/form-state';
 import type { QuoteDepositType, QuoteDiscountType, QuoteStatus } from '@/types/quotes';
+import type { PostgrestError } from '@supabase/supabase-js';
 
 function parseOptionalString(value: FormDataEntryValue | null) {
   const normalized = String(value ?? '').trim();
@@ -90,6 +91,29 @@ function sanitizeQuotePayload(formData: FormData, actorId: string) {
   } as const;
 }
 
+function isMissingQuoteMathColumnError(error: PostgrestError | null) {
+  if (!error) return false;
+  return error.code === '42703' || error.message.toLocaleLowerCase('es-MX').includes('column');
+}
+
+function toUserFriendlyQuoteCreateError(error: PostgrestError | null) {
+  if (!error) return 'No pudimos crear la cotización. Intenta de nuevo.';
+
+  if (error.code === '23503') {
+    return 'No pudimos crear la cotización porque el lead asociado no existe o ya no está disponible.';
+  }
+
+  if (error.code === '42501') {
+    return 'No tienes permisos suficientes para crear esta cotización.';
+  }
+
+  if (isMissingQuoteMathColumnError(error)) {
+    return 'No pudimos crear la cotización porque la base de datos no está actualizada. Aplica las migraciones pendientes.';
+  }
+
+  return `No pudimos crear la cotización (${error.code ?? 'error-desconocido'}). Intenta de nuevo.`;
+}
+
 async function insertLeadActivity(leadId: string, actorId: string, summary: string, details: string | null) {
   const supabase = await createSupabaseServerClient();
   if (!supabase) return;
@@ -154,7 +178,7 @@ export async function createQuoteAction(leadId: string, _previousState: QuoteFor
     return { status: 'error', message: payload.error };
   }
 
-  const { data, error } = await supabase
+  const primaryInsert = await supabase
     .from('quotes')
     .insert({
       lead_id: leadId,
@@ -164,8 +188,39 @@ export async function createQuoteAction(leadId: string, _previousState: QuoteFor
     .select('id, total_amount, status')
     .single();
 
+  let data = primaryInsert.data;
+  let error = primaryInsert.error;
+
+  if (!data && isMissingQuoteMathColumnError(error)) {
+    const legacyPayload = {
+      status: payload.data.status,
+      subtotal: payload.data.subtotal,
+      discount_amount: payload.data.discount_amount,
+      promotion_note: payload.data.promotion_note,
+      total_amount: payload.data.total_amount,
+      expected_deposit: payload.data.expected_deposit,
+      estimated_balance: payload.data.estimated_balance,
+      notes: payload.data.notes,
+      sent_at: payload.data.sent_at,
+      updated_by: payload.data.updated_by,
+    };
+
+    const legacyInsert = await supabase
+      .from('quotes')
+      .insert({
+        lead_id: leadId,
+        ...legacyPayload,
+        created_by: session.user.id,
+      })
+      .select('id, total_amount, status')
+      .single();
+
+    data = legacyInsert.data;
+    error = legacyInsert.error;
+  }
+
   if (error || !data) {
-    return { status: 'error', message: 'No pudimos crear la cotización. Intenta de nuevo.' };
+    return { status: 'error', message: toUserFriendlyQuoteCreateError(error) };
   }
 
   await syncLeadQuotedTotal(leadId, session.user.id);

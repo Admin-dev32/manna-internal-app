@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireActiveSession } from '@/lib/auth/guards';
+import { buildServiceInterestSummary } from '@/lib/leads/service-interest';
 import type { LeadFormState } from '@/services/leads/form-state';
 import type { LeadPriority, LeadStatus } from '@/types/leads';
 
@@ -60,6 +61,23 @@ function parseOptionalSelectWithCustom(formData: FormData, fieldName: string) {
   return selectedOption ?? fallbackValue;
 }
 
+function parseServiceInterests(formData: FormData) {
+  const selected = formData
+    .getAll('service_interest_values')
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean);
+  const customValue = parseOptionalString(formData.get('service_interest_custom'));
+  const fallbackLegacy = parseOptionalSelectWithCustom(formData, 'service_interest');
+
+  const combined = [...selected, ...(customValue ? [customValue] : []), ...(selected.length === 0 && !customValue && fallbackLegacy ? [fallbackLegacy] : [])];
+  const normalized = [...new Set(combined)].slice(0, 3);
+
+  return {
+    serviceInterests: normalized.length > 0 ? normalized : null,
+    serviceInterest: normalized.length > 0 ? buildServiceInterestSummary(normalized) : null,
+  };
+}
+
 function sanitizeLeadPayload(formData: FormData, actorId: string) {
   const fullName = String(formData.get('full_name') ?? '').trim();
   const status = String(formData.get('status') ?? '').trim() as LeadStatus;
@@ -78,6 +96,8 @@ function sanitizeLeadPayload(formData: FormData, actorId: string) {
     return { error: 'La próxima acción es obligatoria.' };
   }
 
+  const parsedServices = parseServiceInterests(formData);
+
   return {
     data: {
       full_name: fullName,
@@ -92,7 +112,8 @@ function sanitizeLeadPayload(formData: FormData, actorId: string) {
       tentative_event_time: parseOptionalString(formData.get('tentative_event_time')),
       location: parseOptionalString(formData.get('location')),
       guest_count: parseOptionalInteger(formData.get('guest_count')),
-      service_interest: parseOptionalSelectWithCustom(formData, 'service_interest'),
+      service_interest: parsedServices.serviceInterest,
+      service_interests: parsedServices.serviceInterests,
       quoted_total: parseOptionalNumber(formData.get('quoted_total')),
       promotion_offered: parseOptionalString(formData.get('promotion_offered')),
       next_action: nextAction,

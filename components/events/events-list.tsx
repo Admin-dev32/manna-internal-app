@@ -1,6 +1,6 @@
 import type { Route } from 'next';
 import Link from 'next/link';
-import { CalendarClock, Filter, TriangleAlert } from 'lucide-react';
+import { CalendarClock, ChevronLeft, ChevronRight, Filter, List, TriangleAlert } from 'lucide-react';
 
 import { EventStatusBadge } from '@/components/events/event-status-badge';
 import { Badge } from '@/components/ui/badge';
@@ -23,21 +23,86 @@ function isUpcoming(value: string) {
   return diffInDays >= 0 && diffInDays <= 7;
 }
 
+function formatMonthLabel(monthValue: string) {
+  const [year, month] = monthValue.split('-').map(Number);
+  return new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric' }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+function getMonthBounds(monthValue: string) {
+  const [year, month] = monthValue.split('-').map(Number);
+  const firstDay = new Date(Date.UTC(year, month - 1, 1));
+  const lastDay = new Date(Date.UTC(year, month, 0));
+  return { firstDay, lastDay };
+}
+
+function addMonths(monthValue: string, amount: number) {
+  const [year, month] = monthValue.split('-').map(Number);
+  const base = new Date(Date.UTC(year, month - 1 + amount, 1));
+  return `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function buildViewHref({
+  view,
+  month,
+  filters,
+}: {
+  view: 'list' | 'calendar';
+  month?: string;
+  filters: { status?: string; from?: string; to?: string };
+}) {
+  const params = new URLSearchParams();
+  if (filters.status && filters.status !== 'todos') params.set('status', filters.status);
+  if (view === 'list') {
+    if (filters.from) params.set('from', filters.from);
+    if (filters.to) params.set('to', filters.to);
+  }
+  if (view === 'calendar') {
+    params.set('view', 'calendar');
+    if (month) params.set('month', month);
+  }
+  const query = params.toString();
+  return (`/eventos${query ? `?${query}` : ''}`) as Route;
+}
+
 export function EventsList({
   events,
   clients,
   quotes,
   checklistProgressByEvent,
   filters,
+  view,
+  month,
 }: {
   events: EventRecord[];
   clients: Record<string, ClientRecord>;
   quotes: Record<string, Pick<QuoteRecord, 'id' | 'status'>>;
   checklistProgressByEvent: Record<string, EventChecklistProgress>;
   filters: { status?: string; from?: string; to?: string };
+  view: 'list' | 'calendar';
+  month: string;
 }) {
   const pendingEvents = events.filter((event) => event.status === 'pendiente' || event.status === 'en_preparacion').length;
   const upcomingEvents = events.filter((event) => isUpcoming(event.event_date) && event.status !== 'completado' && event.status !== 'cancelado').length;
+  const monthBounds = getMonthBounds(month);
+  const monthStartWeekday = (monthBounds.firstDay.getUTCDay() + 6) % 7;
+  const totalDays = monthBounds.lastDay.getUTCDate();
+  const calendarCells = Array.from({ length: monthStartWeekday + totalDays }, (_, index) => {
+    const dayNumber = index - monthStartWeekday + 1;
+    if (dayNumber < 1 || dayNumber > totalDays) return null;
+    return String(dayNumber).padStart(2, '0');
+  });
+  const eventsByDay = events.reduce(
+    (accumulator, event) => {
+      const day = event.event_date.slice(8, 10);
+      const existing = accumulator[day] ?? [];
+      existing.push(event);
+      accumulator[day] = existing;
+      return accumulator;
+    },
+    {} as Record<string, EventRecord[]>,
+  );
+  const previousMonth = addMonths(month, -1);
+  const nextMonth = addMonths(month, 1);
 
   return (
     <div className="flex flex-col gap-6">
@@ -57,6 +122,29 @@ export function EventsList({
         <SummaryCard title="Próximos 7 días" value={String(upcomingEvents)} hint="Pendientes de seguimiento cercano" />
         <SummaryCard title="Pendientes / preparación" value={String(pendingEvents)} hint="Eventos que aún requieren trabajo operativo" />
       </div>
+
+      <Card>
+        <CardHeader className="gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <CardTitle>Vista</CardTitle>
+            <CardDescription>Alterna entre agenda en lista y calendario mensual.</CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button asChild variant={view === 'list' ? 'default' : 'outline'}>
+              <Link href={buildViewHref({ view: 'list', filters })}>
+                <List className="size-4" />
+                Lista
+              </Link>
+            </Button>
+            <Button asChild variant={view === 'calendar' ? 'default' : 'outline'}>
+              <Link href={buildViewHref({ view: 'calendar', month, filters })}>
+                <CalendarClock className="size-4" />
+                Calendario
+              </Link>
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
 
       <Card>
         <CardHeader className="gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -120,7 +208,8 @@ export function EventsList({
         </CardHeader>
       </Card>
 
-      <Card>
+      {view === 'list' ? (
+        <Card>
         <CardHeader>
           <CardTitle>Agenda operativa</CardTitle>
           <CardDescription>Escaneo rápido de eventos, estado actual y avance de checklist.</CardDescription>
@@ -177,7 +266,76 @@ export function EventsList({
             })
           )}
         </CardContent>
-      </Card>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <CardTitle>Calendario de eventos</CardTitle>
+              <CardDescription>Vista mensual para operación con acceso rápido al detalle.</CardDescription>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button asChild size="sm" variant="outline">
+                <Link href={buildViewHref({ view: 'calendar', month: previousMonth, filters })}>
+                  <ChevronLeft className="size-4" />
+                  Mes anterior
+                </Link>
+              </Button>
+              <Badge variant="secondary" className="capitalize">{formatMonthLabel(month)}</Badge>
+              <Button asChild size="sm" variant="outline">
+                <Link href={buildViewHref({ view: 'calendar', month: nextMonth, filters })}>
+                  Mes siguiente
+                  <ChevronRight className="size-4" />
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((day) => (
+                <div key={day} className="rounded-xl border border-border bg-muted/30 py-2">{day}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-7">
+              {calendarCells.map((dayKey, index) => {
+                if (!dayKey) {
+                  return <div key={`empty-${index}`} className="min-h-36 rounded-2xl border border-dashed border-border/70 bg-muted/10" />;
+                }
+
+                const dayEvents = eventsByDay[dayKey] ?? [];
+                return (
+                  <div key={dayKey} className="min-h-36 rounded-2xl border border-border bg-background p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-sm font-semibold text-foreground">{Number(dayKey)}</p>
+                      <Badge variant={dayEvents.length > 0 ? 'warning' : 'outline'}>{dayEvents.length}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {dayEvents.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Sin eventos</p>
+                      ) : (
+                        dayEvents.map((event) => (
+                          <Link
+                            key={event.id}
+                            href={`/eventos/${event.id}` as Route}
+                            className="block rounded-xl border border-border/70 bg-muted/20 p-2 transition hover:border-primary hover:bg-primary/5"
+                          >
+                            <p className="text-xs font-semibold text-foreground">{event.event_type ?? `Evento #${event.id.slice(0, 6)}`}</p>
+                            <p className="text-[11px] text-muted-foreground">{event.event_time} · {clients[event.client_id]?.full_name ?? 'Cliente interno'}</p>
+                            <p className="text-[11px] text-muted-foreground">Servicio: {event.booked_service}</p>
+                            <div className="mt-1">
+                              <EventStatusBadge status={event.status} />
+                            </div>
+                          </Link>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

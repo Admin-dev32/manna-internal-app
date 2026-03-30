@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { parseServiceInterests } from '@/lib/leads/service-interest';
 import { leadEventTypeOptions, leadLanguageOptions, leadPriorityOptions, leadServiceOptions, leadSourceOptions, leadStatusOptions } from '@/config/leads';
 import { initialLeadFormState } from '@/services/leads/form-state';
 import type { LeadFormState } from '@/services/leads/form-state';
@@ -55,7 +56,12 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
 
   const sourceInitial = getCustomSelectInitialState(lead?.source_platform, sourceOptions);
   const eventTypeInitial = getCustomSelectInitialState(lead?.event_type, eventTypeOptions);
-  const serviceInitial = getCustomSelectInitialState(lead?.service_interest, serviceOptions);
+  const initialServiceInterests = parseServiceInterests({
+    serviceInterests: lead?.service_interests ?? null,
+    serviceInterest: lead?.service_interest ?? null,
+  });
+  const initialKnownServices = initialServiceInterests.filter((value) => serviceOptions.some((option) => option.value === value)).slice(0, 3);
+  const initialCustomService = initialServiceInterests.find((value) => !serviceOptions.some((option) => option.value === value)) ?? '';
   const initialStatus = (lead?.status ?? 'nuevo') as LeadStatus;
 
   const [statusValue, setStatusValue] = useState<LeadStatus>(initialStatus);
@@ -63,8 +69,9 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
   const [sourceCustomValue, setSourceCustomValue] = useState(sourceInitial.customValue);
   const [eventTypeSelection, setEventTypeSelection] = useState(eventTypeInitial.selectedValue);
   const [eventTypeCustomValue, setEventTypeCustomValue] = useState(eventTypeInitial.customValue);
-  const [serviceSelection, setServiceSelection] = useState(serviceInitial.selectedValue);
-  const [serviceCustomValue, setServiceCustomValue] = useState(serviceInitial.customValue);
+  const [selectedServices, setSelectedServices] = useState<string[]>(initialKnownServices);
+  const [includeCustomService, setIncludeCustomService] = useState(Boolean(initialCustomService));
+  const [customServiceValue, setCustomServiceValue] = useState(initialCustomService);
 
   function handleReset() {
     setStatusValue(initialStatus);
@@ -72,8 +79,17 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
     setSourceCustomValue(sourceInitial.customValue);
     setEventTypeSelection(eventTypeInitial.selectedValue);
     setEventTypeCustomValue(eventTypeInitial.customValue);
-    setServiceSelection(serviceInitial.selectedValue);
-    setServiceCustomValue(serviceInitial.customValue);
+    setSelectedServices(initialKnownServices);
+    setIncludeCustomService(Boolean(initialCustomService));
+    setCustomServiceValue(initialCustomService);
+  }
+
+  function toggleService(serviceName: string) {
+    setSelectedServices((previous) => {
+      if (previous.includes(serviceName)) return previous.filter((item) => item !== serviceName);
+      if (previous.length >= 3) return previous;
+      return [...previous, serviceName];
+    });
   }
 
   return (
@@ -185,18 +201,57 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
               onCustomValueChange={setEventTypeCustomValue}
             />
 
-            <CustomValueField
-              label="Servicio de interés"
-              name="service_interest"
-              selection={serviceSelection}
-              customValue={serviceCustomValue}
-              options={serviceOptions}
-              placeholder="Selecciona servicio"
-              customLabel="Especifica el servicio"
-              customPlaceholder="Ej. barra de smoothies, estación sin alcohol, experiencia personalizada"
-              onSelectionChange={setServiceSelection}
-              onCustomValueChange={setServiceCustomValue}
-            />
+            <div className="space-y-3 rounded-2xl border border-border/70 bg-muted/20 p-4 md:col-span-2">
+              <Field label="Servicio de interés" description="Selecciona hasta 3 barras/servicios que el cliente está considerando.">
+                <div className="grid gap-2 md:grid-cols-2">
+                  {serviceOptions.map((option) => {
+                    const checked = selectedServices.includes(option.value);
+                    const disabled = !checked && selectedServices.length >= 3;
+
+                    return (
+                      <label
+                        key={option.value}
+                        className={`flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm ${checked ? 'border-primary bg-primary/5' : 'border-border bg-background'} ${disabled ? 'opacity-50' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          name="service_interest_values"
+                          value={option.value}
+                          checked={checked}
+                          disabled={disabled}
+                          onChange={() => toggleService(option.value)}
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </Field>
+
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={includeCustomService}
+                  onChange={(event) => {
+                    setIncludeCustomService(event.target.checked);
+                    if (!event.target.checked) setCustomServiceValue('');
+                  }}
+                />
+                Otro servicio (si no aparece en la lista)
+              </label>
+
+              {includeCustomService ? (
+                <Field label="Servicio personalizado" required>
+                  <Input
+                    name="service_interest_custom"
+                    value={customServiceValue}
+                    onChange={(event) => setCustomServiceValue(event.target.value)}
+                    placeholder="Ej. Estación personalizada temporal"
+                    required
+                  />
+                </Field>
+              ) : null}
+            </div>
 
             <Field label="Fecha tentativa">
               <Input name="tentative_event_date" type="date" defaultValue={lead?.tentative_event_date ?? ''} />
@@ -232,7 +287,7 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
         <div className="flex items-start gap-3">
           <CircleAlert className="mt-0.5 size-4 text-primary" />
           <p>
-            Si eliges <strong>Otro</strong> en origen, tipo de evento o servicio, aparecerá un campo adicional para capturar el valor personalizado y conservarlo al crear o editar el lead.
+            Si eliges <strong>Otro</strong> en origen o tipo de evento, aparecerá un campo adicional. Para servicio de interés puedes seleccionar hasta 3 barras y agregar una personalizada.
           </p>
         </div>
       </div>

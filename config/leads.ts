@@ -34,7 +34,15 @@ export const leadSourceOptions = [
 
 export const leadEventTypeOptions = ['Boda', 'Corporativo', 'Cumpleaños', 'Festival', 'Activación', 'Otro'] as const;
 
-export const leadServiceOptions = ['Bar móvil', 'Mixología', 'Coffee bar', 'Mocktail bar', 'Otro'] as const;
+export const leadServiceOptions = [
+  'Mini Pancake Bar',
+  'Tostiloco Bar',
+  'Maruchan Bar',
+  'Esquites Bar',
+  'Manna Snack Bar — La Clásica',
+  'Chocolate Fountain',
+  'Servicio con 2 barras',
+] as const;
 
 export const leadStatusLabels = Object.fromEntries(leadStatusOptions.map((option) => [option.value, option.label])) as Record<LeadStatus, string>;
 export const leadPriorityLabels = Object.fromEntries(leadPriorityOptions.map((option) => [option.value, option.label])) as Record<LeadPriority, string>;

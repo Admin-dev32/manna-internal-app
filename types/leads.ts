@@ -22,6 +22,7 @@ export interface LeadRecord {
   location: string | null;
   guest_count: number | null;
   service_interest: string | null;
+  service_interests: string[] | null;
   quoted_total: number | string | null;
   promotion_offered: string | null;
   next_action: string;

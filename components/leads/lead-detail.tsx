@@ -9,6 +9,7 @@ import { RecordTimelineSection } from '@/components/communication/record-timelin
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { leadPriorityLabels, leadStatusLabels } from '@/config/leads';
+import { buildServiceInterestSummary, parseServiceInterests } from '@/lib/leads/service-interest';
 import type { ClientRecord } from '@/types/clients';
 import type { LeadActivityRecord, LeadProfileOption, LeadRecord } from '@/types/leads';
 import type { QuoteRecord } from '@/types/quotes';
@@ -27,6 +28,14 @@ function formatDate(value: string | null) {
 }
 
 export function LeadDetail({ lead, activities, profiles, quotes, client }: LeadDetailProps) {
+  const serviceInterestSummary =
+    buildServiceInterestSummary(
+      parseServiceInterests({
+        serviceInterests: lead.service_interests,
+        serviceInterest: lead.service_interest,
+      }),
+    ) || 'Sin definir';
+
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-5 rounded-[2rem] border border-border bg-slate-950 p-6 text-white shadow-panel sm:p-8">
@@ -86,7 +95,7 @@ export function LeadDetail({ lead, activities, profiles, quotes, client }: LeadD
               <InfoItem label="Idioma" value={lead.language === 'en' ? 'Inglés' : 'Español'} />
               <InfoItem label="Plataforma de origen" value={lead.source_platform ?? 'Sin definir'} />
               <InfoItem label="Tipo de evento" value={lead.event_type ?? 'Sin definir'} />
-              <InfoItem label="Servicio de interés" value={lead.service_interest ?? 'Sin definir'} />
+              <InfoItem label="Servicio de interés" value={serviceInterestSummary} />
               <InfoItem label="Fecha tentativa" value={lead.tentative_event_date ?? 'Sin definir'} />
               <InfoItem label="Hora tentativa" value={lead.tentative_event_time ?? 'Sin definir'} />
               <InfoItem label="Invitados" value={lead.guest_count?.toString() ?? 'Sin definir'} />

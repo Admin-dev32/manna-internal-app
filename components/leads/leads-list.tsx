@@ -28,6 +28,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { leadPriorityOptions, leadStatusOptions } from '@/config/leads';
+import { buildServiceInterestSummary, parseServiceInterests } from '@/lib/leads/service-interest';
 import { updateLeadInlineAction, updateLeadStatusAction } from '@/services/leads/actions';
 import { cn } from '@/lib/utils';
 import type { LeadPriority, LeadProfileOption, LeadRecord, LeadStatus } from '@/types/leads';
@@ -62,6 +63,17 @@ function formatDate(value: string | null, dateOnly = false) {
 
 function getPrimaryContact(lead: LeadRecord) {
   return lead.email ?? lead.phone ?? 'Sin contacto principal';
+}
+
+function getServiceInterestLabel(lead: LeadRecord) {
+  return (
+    buildServiceInterestSummary(
+      parseServiceInterests({
+        serviceInterests: lead.service_interests,
+        serviceInterest: lead.service_interest,
+      }),
+    ) || 'Sin definir'
+  );
 }
 
 function getResponsibleLabel(lead: LeadRecord, profiles: Record<string, LeadProfileOption>) {
@@ -143,7 +155,7 @@ function matchesSearch(lead: LeadRecord, term: string) {
     lead.phone,
     lead.next_action,
     lead.source_platform,
-    lead.service_interest,
+    getServiceInterestLabel(lead),
     lead.event_type,
     lead.location,
   ]
@@ -587,7 +599,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                     />
                                   </TableCell>
                                   <TableCell className="text-sm text-muted-foreground">{lead.source_platform ?? 'Sin definir'}</TableCell>
-                                  <TableCell className="text-sm text-muted-foreground">{lead.service_interest ?? 'Sin definir'}</TableCell>
+                                  <TableCell className="text-sm text-muted-foreground">{getServiceInterestLabel(lead)}</TableCell>
                                   <TableCell className="text-sm text-muted-foreground">{lead.guest_count?.toString() ?? '—'}</TableCell>
                                   <TableCell className="text-sm text-muted-foreground">{formatDate(lead.last_interaction_at)}</TableCell>
                                   <TableCell>
@@ -688,7 +700,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                     value={<InlineNextActionInput value={lead.next_action} disabled={pendingLeadId === lead.id} onSave={(value) => handleInlineLeadUpdate(lead.id, { next_action: value })} />}
                                   />
                                   <InfoLine label="Origen" value={lead.source_platform ?? 'Sin definir'} />
-                                  <InfoLine label="Servicio" value={lead.service_interest ?? 'Sin definir'} />
+                                  <InfoLine label="Servicio" value={getServiceInterestLabel(lead)} />
                                 </div>
 
                                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -950,7 +962,7 @@ function LeadQuickViewDrawer({
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <QuickStat label="Responsable" value={getResponsibleLabel(lead, profiles)} />
               <QuickStat label="Origen" value={lead.source_platform ?? 'Sin definir'} />
-              <QuickStat label="Servicio" value={lead.service_interest ?? 'Sin definir'} />
+              <QuickStat label="Servicio" value={getServiceInterestLabel(lead)} />
               <QuickStat label="Invitados" value={lead.guest_count?.toString() ?? 'Sin definir'} />
               <QuickStat label="Fecha tentativa" value={lead.tentative_event_date ? formatDate(lead.tentative_event_date, true) : 'Sin definir'} />
               <QuickStat label="Última interacción" value={formatDate(lead.last_interaction_at)} />
