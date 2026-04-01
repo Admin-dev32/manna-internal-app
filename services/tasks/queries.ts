@@ -28,8 +28,9 @@ export async function getTasksOverviewPageData() {
   }
 
   const { data } = await supabase
-    .from('event_tasks')
+    .from('tasks_catalog')
     .select('*')
+    .eq('source_type', 'event')
     .order('status', { ascending: true })
     .order('priority', { ascending: false })
     .order('updated_at', { ascending: false })

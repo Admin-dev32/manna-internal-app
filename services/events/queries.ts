@@ -5,9 +5,13 @@ import { getClientById } from '@/services/clients/queries';
 import { getQuoteFinancialSummary } from '@/services/finance/queries';
 import { getLeadById } from '@/services/leads/queries';
 import { getEventInventorySectionData } from '@/services/inventory/queries';
+import { getEventBarMasterTemplatePanelData } from '@/services/bar-master-templates/queries';
 import { getPreEventById } from '@/services/pre-events/queries';
 import { getEventOperationalTemplatePanelData } from '@/services/operational-templates/queries';
+import { getRecurringTaskRulesByEventId } from '@/services/tasks/recurring';
+import type { EventCalendarSyncRecord } from '@/types/calendar';
 import type { ClientRecord } from '@/types/clients';
+import type { EmployeeEventReportRecord, EmployeeReportEvidenceRecord } from '@/types/employees';
 import { EVENT_ASSIGNMENT_ROLES, EVENT_TASK_PRIORITIES } from '@/types/events';
 import type {
   EventChecklistItemRecord,
@@ -19,8 +23,17 @@ import type {
 } from '@/types/events';
 import type { LeadProfileOption } from '@/types/leads';
 import type { EventInventoryRequirementRecord, InventoryAvailabilitySummary, InventoryItemRecord } from '@/types/inventory';
+import type { BarMasterTemplateApplicationRecord, BarMasterTemplateRecord } from '@/types/inventory';
 import type { QuoteRecord } from '@/types/quotes';
 import type { EventOperationalTemplateApplicationRecord } from '@/types/operational-templates';
+
+export type EventOperationalHubStatus = 'pendiente' | 'listo_para_operar' | 'en_preparacion' | 'en_servicio' | 'cerrado' | 'con_incidencias';
+
+export interface EventOperationalSignal {
+  key: string;
+  level: 'info' | 'warning' | 'critical' | 'success';
+  message: string;
+}
 
 async function getProfilesMap(ids: string[]) {
   const supabase = await createSupabaseServerClient();
@@ -59,12 +72,35 @@ export async function getEventById(eventId: string) {
   return (data as EventRecord | null) ?? null;
 }
 
+
+export async function getEventByQuoteId(quoteId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data } = await supabase.from('events').select('*').eq('source_quote_id', quoteId).maybeSingle();
+  return (data as EventRecord | null) ?? null;
+}
+
 export async function getEventByPreEventId(preEventId: string) {
   const supabase = await createSupabaseServerClient();
   if (!supabase) return null;
 
   const { data } = await supabase.from('events').select('*').eq('source_pre_event_id', preEventId).maybeSingle();
   return (data as EventRecord | null) ?? null;
+}
+
+export async function getEventCalendarSyncByEventId(eventId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data } = await supabase
+    .from('event_calendar_syncs')
+    .select('*')
+    .eq('source_record_type', 'event')
+    .eq('source_record_id', eventId)
+    .maybeSingle();
+
+  return (data as EventCalendarSyncRecord | null) ?? null;
 }
 
 export async function getEventChecklistItems(eventId: string) {
@@ -173,7 +209,7 @@ export async function getEventDetailPageData(eventId: string) {
   }
   const currentEvent = event;
 
-  const [client, lead, preEvent, quote, checklistItems, assignments, tasks, inventorySection, templateSection, assignableProfiles, financeSummary] = await Promise.all([
+  const [client, lead, preEvent, quote, checklistItems, assignments, tasks, recurringTaskRules, inventorySection, barMasterTemplateSection, templateSection, assignableProfiles, financeSummary, calendarSync, employeeReportsRaw, availabilityRowsRaw] = await Promise.all([
     getClientById(currentEvent.client_id),
     currentEvent.lead_id ? getLeadById(currentEvent.lead_id) : Promise.resolve(null),
     getPreEventById(currentEvent.source_pre_event_id),
@@ -181,10 +217,32 @@ export async function getEventDetailPageData(eventId: string) {
     getEventChecklistItems(currentEvent.id),
     getEventStaffAssignments(currentEvent.id),
     getEventTasks(currentEvent.id),
+    getRecurringTaskRulesByEventId(currentEvent.id),
     getEventInventorySectionData(currentEvent.id),
+    getEventBarMasterTemplatePanelData(currentEvent.id),
     getEventOperationalTemplatePanelData(currentEvent),
     getAssignableProfiles(),
     getQuoteFinancialSummary(currentEvent.source_quote_id),
+    getEventCalendarSyncByEventId(currentEvent.id),
+    createSupabaseServerClient().then(async (supabase) => {
+      if (!supabase) return [] as EmployeeEventReportRecord[];
+      const { data } = await supabase
+        .from('employee_event_reports')
+        .select('*')
+        .eq('event_id', currentEvent.id)
+        .order('created_at', { ascending: false })
+        .limit(40);
+      return (data ?? []) as EmployeeEventReportRecord[];
+    }),
+    createSupabaseServerClient().then(async (supabase) => {
+      if (!supabase) return [] as Array<{ profile_id: string; reason: string; created_at: string; availability_status: string }>;
+      const { data } = await supabase
+        .from('employee_assignment_availability')
+        .select('profile_id, reason, created_at, availability_status')
+        .eq('event_id', currentEvent.id)
+        .order('created_at', { ascending: false });
+      return (data ?? []) as Array<{ profile_id: string; reason: string; created_at: string; availability_status: string }>;
+    }),
   ]);
 
   if (!client || !preEvent || !quote) {
@@ -192,7 +250,7 @@ export async function getEventDetailPageData(eventId: string) {
     return;
   }
 
-  const profiles = await getProfilesMap([
+  const profileIds = [
     currentEvent.created_by,
     currentEvent.updated_by,
     ...assignments.map((assignment) => assignment.profile_id),
@@ -201,12 +259,86 @@ export async function getEventDetailPageData(eventId: string) {
     ...tasks.map((task) => task.assigned_profile_id),
     ...tasks.map((task) => task.created_by),
     ...tasks.map((task) => task.updated_by),
+    ...recurringTaskRules.map((rule) => rule.assigned_profile_id),
+    ...recurringTaskRules.map((rule) => rule.created_by),
+    ...recurringTaskRules.map((rule) => rule.updated_by),
     ...inventorySection.inventoryItems.map((item) => item.created_by),
     ...inventorySection.inventoryItems.map((item) => item.updated_by),
-  ]);
+    ...inventorySection.requirements.map((requirement) => requirement.checked_by),
+    ...inventorySection.requirements.map((requirement) => requirement.updated_by),
+    ...barMasterTemplateSection.applications.map((application) => application.applied_by),
+  ].filter((value): value is string => Boolean(value));
+
+  const profiles = await getProfilesMap(profileIds);
 
   const assignedProfileIds = new Set(assignments.map((assignment) => assignment.profile_id));
   const availableProfiles = assignableProfiles.filter((profile) => !assignedProfileIds.has(profile.id));
+
+  const supabase = await createSupabaseServerClient();
+  const reportIds = employeeReportsRaw.map((report) => report.id);
+  const evidenceRows = supabase && reportIds.length > 0
+    ? await supabase.from('employee_report_evidences').select('*').in('report_id', reportIds).order('created_at', { ascending: false })
+    : { data: [] };
+
+  const evidenceByReport = ((evidenceRows.data ?? []) as EmployeeReportEvidenceRecord[]).reduce<
+    Record<string, Array<EmployeeReportEvidenceRecord & { signed_url: string | null }>>
+  >((acc, row) => {
+    if (!acc[row.report_id]) acc[row.report_id] = [];
+    acc[row.report_id].push({ ...row, signed_url: null });
+    return acc;
+  }, {});
+
+  if (supabase) {
+    for (const [reportId, rows] of Object.entries(evidenceByReport)) {
+      evidenceByReport[reportId] = await Promise.all(
+        rows.map(async (row) => {
+          const signed = await supabase.storage.from(row.storage_bucket).createSignedUrl(row.storage_path, 60 * 60 * 8);
+          return { ...row, signed_url: signed.data?.signedUrl ?? null };
+        }),
+      );
+    }
+  }
+
+  const unavailableProfileIds = new Set(
+    availabilityRowsRaw.filter((item) => item.availability_status === 'unavailable_reported').map((item) => item.profile_id),
+  );
+  const confirmedAssignments = assignments.filter((assignment) => assignment.assignment_status === 'confirmado').length;
+  const pendingAssignments = assignments.length - confirmedAssignments;
+  const hasCalendarFinal = Boolean(calendarSync?.external_event_id) && calendarSync?.sync_status !== 'error';
+  const pendingReportReviews = employeeReportsRaw.filter((report) => report.review_status !== 'bonus_liberado' && report.review_status !== 'aprobado').length;
+  const hasCriticalRisk = unavailableProfileIds.size > 0 || confirmedAssignments === 0 || !hasCalendarFinal;
+
+  let operationalHubStatus: EventOperationalHubStatus = 'pendiente';
+  if (currentEvent.status === 'completado' || currentEvent.status === 'cancelado') {
+    operationalHubStatus = 'cerrado';
+  } else if (hasCriticalRisk) {
+    operationalHubStatus = 'con_incidencias';
+  } else if (currentEvent.status === 'en_preparacion') {
+    operationalHubStatus = 'en_preparacion';
+  } else if (currentEvent.status === 'confirmado' && confirmedAssignments > 0 && hasCalendarFinal) {
+    operationalHubStatus = 'listo_para_operar';
+  } else if (currentEvent.status === 'confirmado' && employeeReportsRaw.length > 0) {
+    operationalHubStatus = 'en_servicio';
+  }
+
+  const operationalSignals: EventOperationalSignal[] = [
+    !hasCalendarFinal
+      ? { key: 'calendar_missing', level: 'critical', message: 'Sin calendar sync final activo en Google Calendar.' }
+      : { key: 'calendar_ok', level: 'success', message: 'Calendar sync final activo en Google Calendar.' },
+    assignments.length === 0
+      ? { key: 'staff_none', level: 'critical', message: 'Evento sin staff asignado.' }
+      : pendingAssignments > 0
+        ? { key: 'staff_pending', level: 'warning', message: `${pendingAssignments} asignaciones pendientes de confirmar.` }
+        : { key: 'staff_ok', level: 'success', message: 'Cobertura de staff confirmada.' },
+    unavailableProfileIds.size > 0
+      ? { key: 'unavailable', level: 'warning', message: `${unavailableProfileIds.size} integrante(s) avisó inasistencia.` }
+      : { key: 'unavailable_ok', level: 'info', message: 'Sin avisos de inasistencia registrados.' },
+    employeeReportsRaw.length === 0
+      ? { key: 'reports_none', level: 'warning', message: 'Aún no hay reportes de ejecución del staff.' }
+      : pendingReportReviews > 0
+        ? { key: 'reports_review', level: 'info', message: `${pendingReportReviews} reporte(s) pendiente(s) de revisión.` }
+        : { key: 'reports_ok', level: 'success', message: 'Reportes recientes revisados o con bonus liberado.' },
+  ];
 
   return {
     event: currentEvent,
@@ -218,15 +350,24 @@ export async function getEventDetailPageData(eventId: string) {
     checklistProgress: computeChecklistProgress(checklistItems),
     assignments,
     tasks,
+    recurringTaskRules,
     inventoryItems: inventorySection.inventoryItems as InventoryItemRecord[],
     inventoryRequirements: inventorySection.requirements as EventInventoryRequirementRecord[],
     inventoryAvailabilityByItem: inventorySection.availabilityByItem as Record<string, InventoryAvailabilitySummary>,
+    barMasterTemplates: barMasterTemplateSection.templates as BarMasterTemplateRecord[],
+    barMasterTemplateApplications: barMasterTemplateSection.applications as BarMasterTemplateApplicationRecord[],
     applicableOperationalTemplates: templateSection.applicableTemplates,
     operationalTemplateApplications: templateSection.applications as EventOperationalTemplateApplicationRecord[],
     operationalTemplateProfiles: templateSection.profiles,
     assignableProfiles: availableProfiles,
     profiles,
     financeSummary,
+    calendarSync,
+    operationalHubStatus,
+    operationalSignals,
+    employeeReports: employeeReportsRaw,
+    reportEvidencesByReport: evidenceByReport,
+    availabilityRows: availabilityRowsRaw,
   };
 }
 

@@ -52,11 +52,17 @@ export function EventTasksSection({
   tasks,
   assignments,
   profiles,
+  canManageTasks,
+  canAssignTasks,
+  canUpdateTaskStatus,
 }: {
   eventId: string;
   tasks: EventTaskRecord[];
   assignments: EventStaffAssignmentRecord[];
   profiles: Record<string, LeadProfileOption>;
+  canManageTasks: boolean;
+  canAssignTasks: boolean;
+  canUpdateTaskStatus: boolean;
 }) {
   const completedTasks = tasks.filter((task) => task.status === 'completada').length;
   const blockedTasks = tasks.filter((task) => task.status === 'bloqueada').length;
@@ -126,25 +132,29 @@ export function EventTasksSection({
                                   Prioridad {EVENT_TASK_PRIORITY_LABELS[task.priority]}
                                 </Badge>
                                 {task.due_at ? <Badge variant="outline">Vence: {formatDateTime(task.due_at)}</Badge> : null}
+                                {task.recurring_rule_id ? <Badge variant="outline">Generada por recurrencia</Badge> : null}
                               </div>
                               <div>
                                 <p className="font-semibold text-foreground">{task.title}</p>
                                 {task.description ? <p className="mt-1 text-sm text-muted-foreground">{task.description}</p> : null}
                               </div>
                             </div>
-                            <div className="flex flex-wrap gap-2">
-                              {getQuickStatusOptions(task.status).map((status) => (
-                                <form key={status} action={updateEventTaskStatusAction.bind(null, eventId, task.id, status)}>
-                                  <Button type="submit" variant="outline" size="sm">
-                                    {status === 'en_progreso' ? <PlayCircle className="size-4" /> : null}
-                                    {EVENT_TASK_STATUS_LABELS[status]}
-                                  </Button>
-                                </form>
-                              ))}
-                            </div>
+                            {canUpdateTaskStatus ? (
+                              <div className="flex flex-wrap gap-2">
+                                {getQuickStatusOptions(task.status).map((status) => (
+                                  <form key={status} action={updateEventTaskStatusAction.bind(null, eventId, task.id, status)}>
+                                    <Button type="submit" variant="outline" size="sm">
+                                      {status === 'en_progreso' ? <PlayCircle className="size-4" /> : null}
+                                      {EVENT_TASK_STATUS_LABELS[status]}
+                                    </Button>
+                                  </form>
+                                ))}
+                              </div>
+                            ) : null}
                           </div>
 
-                          <form action={updateEventTaskAction.bind(null, eventId, task.id)} className="mt-4 grid gap-4 xl:grid-cols-2">
+                          {canManageTasks ? (
+                            <form action={updateEventTaskAction.bind(null, eventId, task.id)} className="mt-4 grid gap-4 xl:grid-cols-2">
                             <div className="space-y-2">
                               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Título</label>
                               <Input name="title" defaultValue={task.title} />
@@ -152,20 +162,27 @@ export function EventTasksSection({
 
                             <div className="space-y-2">
                               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Responsable</label>
-                              <select
-                                name="assigned_profile_id"
-                                defaultValue={task.assigned_profile_id}
-                                className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                              >
-                                {assignments.map((option) => {
-                                  const profile = profiles[option.profile_id];
-                                  return (
-                                    <option key={option.profile_id} value={option.profile_id}>
-                                      {profile?.full_name ?? option.profile_id}
-                                    </option>
-                                  );
-                                })}
-                              </select>
+                              {canAssignTasks ? (
+                                <select
+                                  name="assigned_profile_id"
+                                  defaultValue={task.assigned_profile_id}
+                                  className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                >
+                                  {assignments.map((option) => {
+                                    const profile = profiles[option.profile_id];
+                                    return (
+                                      <option key={option.profile_id} value={option.profile_id}>
+                                        {profile?.full_name ?? option.profile_id}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              ) : (
+                                <>
+                                  <Input value={profiles[task.assigned_profile_id]?.full_name ?? 'Responsable interno'} readOnly />
+                                  <input type="hidden" name="assigned_profile_id" value={task.assigned_profile_id} />
+                                </>
+                              )}
                             </div>
 
                             <div className="space-y-2">
@@ -195,6 +212,7 @@ export function EventTasksSection({
                                   <select
                                     name="status"
                                     defaultValue={task.status}
+                                    disabled={!canUpdateTaskStatus}
                                     className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                   >
                                     {Object.entries(EVENT_TASK_STATUS_LABELS).map(([value, label]) => (
@@ -224,7 +242,12 @@ export function EventTasksSection({
                                 </div>
                               </div>
                             </div>
-                          </form>
+                            </form>
+                          ) : (
+                            <p className="mt-4 rounded-2xl border border-dashed border-border px-4 py-3 text-xs text-muted-foreground">
+                              Sin permiso para editar esta tarea.
+                            </p>
+                          )}
 
                           <div className="mt-4 grid gap-2 rounded-2xl bg-background px-4 py-3 text-xs text-muted-foreground md:grid-cols-2">
                             <span>Creada por: <strong className="text-foreground">{createdByProfile?.full_name ?? 'Usuario interno'}</strong></span>
@@ -254,7 +277,7 @@ export function EventTasksSection({
         <div className="rounded-3xl border border-border bg-muted/30 p-4">
           <h3 className="text-sm font-semibold text-foreground">Crear tarea operativa</h3>
           <p className="mt-1 text-sm text-muted-foreground">Las tareas nuevas se asignan únicamente a responsables ya ligados al evento.</p>
-          {assignments.length > 0 ? (
+          {canManageTasks && assignments.length > 0 ? (
             <form action={createEventTaskAction.bind(null, eventId)} className="mt-4 grid gap-4 xl:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Título</label>
@@ -263,20 +286,27 @@ export function EventTasksSection({
 
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Responsable</label>
-                <select
-                  name="assigned_profile_id"
-                  defaultValue={assignments[0]?.profile_id ?? ''}
-                  className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  {assignments.map((assignment) => {
-                    const profile = profiles[assignment.profile_id];
-                    return (
-                      <option key={assignment.profile_id} value={assignment.profile_id}>
-                        {profile?.full_name ?? assignment.profile_id}
-                      </option>
-                    );
-                  })}
-                </select>
+                {canAssignTasks ? (
+                  <select
+                    name="assigned_profile_id"
+                    defaultValue={assignments[0]?.profile_id ?? ''}
+                    className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    {assignments.map((assignment) => {
+                      const profile = profiles[assignment.profile_id];
+                      return (
+                        <option key={assignment.profile_id} value={assignment.profile_id}>
+                          {profile?.full_name ?? assignment.profile_id}
+                        </option>
+                      );
+                    })}
+                  </select>
+                ) : (
+                  <>
+                    <Input value={profiles[assignments[0]?.profile_id]?.full_name ?? 'Responsable interno'} readOnly />
+                    <input type="hidden" name="assigned_profile_id" value={assignments[0]?.profile_id ?? ''} />
+                  </>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -306,6 +336,7 @@ export function EventTasksSection({
                     <select
                       name="status"
                       defaultValue="pendiente"
+                      disabled={!canUpdateTaskStatus}
                       className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                       {Object.entries(EVENT_TASK_STATUS_LABELS).map(([value, label]) => (
@@ -336,9 +367,13 @@ export function EventTasksSection({
                 </div>
               </div>
             </form>
-          ) : (
+          ) : canManageTasks ? (
             <div className="mt-4 rounded-2xl border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
               Primero asigna personal al evento para poder crear tareas con responsables reales.
+            </div>
+          ) : (
+            <div className="mt-4 rounded-2xl border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
+              Sin permiso para crear tareas operativas.
             </div>
           )}
         </div>

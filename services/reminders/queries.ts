@@ -440,6 +440,25 @@ function buildEventReminders({
     },
     {} as Record<string, number>,
   );
+  const inventoryPendingPrepByEvent = inventoryRequirements.reduce(
+    (accumulator, item) => {
+      if (item.prep_status === 'pendiente' || item.prep_status === 'faltante') {
+        accumulator[item.event_id] = (accumulator[item.event_id] ?? 0) + 1;
+      }
+      return accumulator;
+    },
+    {} as Record<string, number>,
+  );
+  const inventoryMissingByEvent = inventoryRequirements.reduce(
+    (accumulator, item) => {
+      const missing = Math.max(Number(item.quantity_required ?? 0) - Number(item.quantity_counted ?? 0), 0);
+      if (missing > 0) {
+        accumulator[item.event_id] = (accumulator[item.event_id] ?? 0) + 1;
+      }
+      return accumulator;
+    },
+    {} as Record<string, number>,
+  );
 
   for (const event of events) {
     if (!ACTIVE_EVENT_STATUSES.has(event.status)) continue;
@@ -503,6 +522,8 @@ function buildEventReminders({
       (checklistPendingByEvent[event.id] ?? 0) > 0 ? `Checklist pendiente (${checklistPendingByEvent[event.id]})` : null,
       (assignmentCountByEvent[event.id] ?? 0) === 0 ? 'Sin staff asignado' : null,
       (inventoryCountByEvent[event.id] ?? 0) === 0 ? 'Sin materiales ligados' : null,
+      (inventoryPendingPrepByEvent[event.id] ?? 0) > 0 ? `Materiales pendientes/faltantes (${inventoryPendingPrepByEvent[event.id]})` : null,
+      (inventoryMissingByEvent[event.id] ?? 0) > 0 ? `Conteo incompleto de materiales (${inventoryMissingByEvent[event.id]})` : null,
     ].filter(Boolean) as string[];
 
     if (missingReasons.length > 0) {
@@ -548,7 +569,7 @@ export async function getRemindersCenterData(): Promise<ReminderCenterData> {
     { data: inventoryRequirementsData },
   ] = await Promise.all([
     supabase.from('leads').select('*').order('updated_at', { ascending: false }).limit(120),
-    supabase.from('event_tasks').select('*').order('updated_at', { ascending: false }).limit(160),
+    supabase.from('tasks_catalog').select('*').eq('source_type', 'event').order('updated_at', { ascending: false }).limit(160),
     supabase.from('events').select('*').order('event_date', { ascending: true }).limit(120),
     supabase.from('pre_events').select('*').order('confirmed_date', { ascending: true, nullsFirst: false }).limit(120),
     supabase.from('event_checklist_items').select('*'),
