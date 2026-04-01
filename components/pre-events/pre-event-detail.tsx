@@ -2,7 +2,10 @@ import type { Route } from 'next';
 import Link from 'next/link';
 
 import { createEventFromPreEventAction } from '@/services/events/actions';
+import { createPreEventPaymentLinkAction, syncPreEventToGoogleCalendarAction } from '@/services/pre-events/actions';
 import { FinancialSummaryCard } from '@/components/finance/financial-summary-card';
+import { PreEventCalendarSyncCard } from '@/components/pre-events/pre-event-calendar-sync-card';
+import { PreEventPaymentLinksCard } from '@/components/pre-events/pre-event-payment-links-card';
 import { PreEventStatusBadge } from '@/components/pre-events/pre-event-status-badge';
 import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
 import { EventTemplateSection } from '@/components/templates/event-template-section';
@@ -17,9 +20,12 @@ import type {
   OperationalTemplateMaterialItemRecord,
   OperationalTemplateTaskItemRecord,
 } from '@/types/operational-templates';
+import type { PaymentLinkRecord } from '@/types/payments';
 import type { PreEventRecord } from '@/types/pre-events';
 import type { QuoteRecord } from '@/types/quotes';
 import { getPreEventReadyState } from '@/lib/events/readiness';
+import type { EventCalendarSyncRecord } from '@/types/calendar';
+import { validatePreEventCalendarRequirements } from '@/services/pre-events/calendar';
 
 function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(new Date(value)) : 'Pendiente';
@@ -40,6 +46,7 @@ export function PreEventDetail({
   client,
   lead,
   quote,
+  paymentLinks,
   profiles,
   linkedEvent,
   applicableOperationalTemplates,
@@ -47,11 +54,13 @@ export function PreEventDetail({
   operationalTemplateProfiles,
   financeSummary,
   canViewFinance,
+  calendarSync,
 }: {
   preEvent: PreEventRecord;
   client: ClientRecord;
   lead: LeadRecord | null;
   quote: QuoteRecord;
+  paymentLinks: PaymentLinkRecord[];
   profiles: Record<string, LeadProfileOption>;
   linkedEvent: EventRecord | null;
   applicableOperationalTemplates: Array<{
@@ -71,9 +80,13 @@ export function PreEventDetail({
   operationalTemplateProfiles: Record<string, LeadProfileOption>;
   financeSummary: EventFinanceSnapshot | null;
   canViewFinance: boolean;
+  calendarSync: EventCalendarSyncRecord | null;
 }) {
   const pendingItems = getPendingItems(preEvent);
   const readyState = getPreEventReadyState(preEvent);
+  const paymentLinkAction = createPreEventPaymentLinkAction.bind(null, preEvent.id);
+  const calendarSyncAction = syncPreEventToGoogleCalendarAction.bind(null, preEvent.id);
+  const calendarRequirements = validatePreEventCalendarRequirements(preEvent, client);
 
   return (
     <div className="flex flex-col gap-6">
@@ -207,6 +220,9 @@ export function PreEventDetail({
               <SummaryRow label="Última edición" value={profiles[preEvent.updated_by]?.full_name ?? 'Usuario interno'} />
             </CardContent>
           </Card>
+
+          <PreEventPaymentLinksCard action={paymentLinkAction} paymentLinks={paymentLinks} />
+          <PreEventCalendarSyncCard action={calendarSyncAction} requirements={calendarRequirements} sync={calendarSync} />
         </div>
       </div>
 

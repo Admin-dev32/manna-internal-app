@@ -27,6 +27,10 @@ function formatPercentage(value: number) {
   return `${value.toFixed(2)}%`;
 }
 
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+}
+
 export function QuoteFinancialSheet({ quoteId, draft, canManage }: QuoteFinancialSheetProps) {
   const [grossRevenue, setGrossRevenue] = useState(String(draft.sheet?.gross_revenue ?? draft.initialGrossRevenue ?? ''));
   const [taxReservePercentage, setTaxReservePercentage] = useState(String(draft.sheet?.tax_reserve_percentage ?? draft.defaults.taxReservePercentage ?? ''));
@@ -75,10 +79,19 @@ export function QuoteFinancialSheet({ quoteId, draft, canManage }: QuoteFinancia
           {!canManage ? (
             <div className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200">
               <LockKeyhole className="size-4" />
-              Solo owner y managers con permiso financiero pueden editar.
+              Solo usuarios con permiso financiero de edición de hoja pueden editar.
             </div>
           ) : null}
         </div>
+        {draft.latestChange ? (
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-slate-200">
+            Último cambio financiero registrado: {draft.latestChange.change_kind} · {formatDateTime(draft.latestChange.created_at)}.
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-slate-200">
+            Sin cambios financieros persistidos todavía para esta cotización.
+          </div>
+        )}
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">

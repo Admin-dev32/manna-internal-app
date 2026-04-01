@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 
 import { EVENT_ASSIGNMENT_ROLE_LABELS } from '@/config/events';
 import { requireActiveSession, requirePermission } from '@/lib/auth/guards';
+import { hasPermission } from '@/lib/auth/permissions';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getEventById, getEventStaffAssignments } from '@/services/events/queries';
 import { OPERATIONAL_TEMPLATE_SEEDS } from '@/services/operational-templates/seed-data';
@@ -527,6 +528,10 @@ export async function applyOperationalTemplateToEventAction(eventId: string, tem
   if (!supabase || !session.user) return;
   const actorId = session.user.id;
 
+  if (!hasPermission(session.user, 'tasks.manage') || !hasPermission(session.user, 'tasks.assign')) {
+    return;
+  }
+
   const event = await getEventById(eventId);
   const template = await getOperationalTemplateById(templateId);
   if (!event || !template || !template.is_active) return;
@@ -619,7 +624,15 @@ export async function applyOperationalTemplateToEventAction(eventId: string, tem
       event_id: eventId,
       inventory_item_id: item.inventory_item_id,
       quantity_required: item.quantity_required ?? 1,
+      quantity_counted: null,
       quantity_used: null,
+      prep_status: 'pendiente',
+      prep_notes: item.pending_definition ? 'Pendiente aterrizar conteo operativo para este material.' : null,
+      checked_by: null,
+      checked_at: null,
+      source_type: 'template',
+      source_template_id: templateId,
+      updated_by: actorId,
       note: `template-material:${item.name}${item.note ? ` · ${item.note}` : ''}${item.pending_definition ? ' · Pendiente por definir' : ''}`,
     }));
 

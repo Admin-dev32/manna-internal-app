@@ -6,7 +6,20 @@ import { redirect } from 'next/navigation';
 
 import { requireActiveSession } from '@/lib/auth/guards';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getClientByLeadId } from '@/services/clients/queries';
+import { getLeadById } from '@/services/leads/queries';
+import { sendTransactionalEmail } from '@/services/email/provider';
+import { createCentralPaymentLink, getInternalPaymentsConfig } from '@/services/payments/internal-api';
+import { getLatestPaymentLinkBySourceAndMode, getPaymentLinksBySource } from '@/services/payments/queries';
+import type { PreEventPaymentLinkFormState } from '@/services/pre-events/payment-link-form-state';
+import { getPreEventByQuoteId } from '@/services/pre-events/queries';
+import { buildPaymentLinkPayload, getQuotePaymentLinkPayloadSource, getResponsePaymentLinkData, validatePaymentLinkPayloadSource } from '@/services/pre-events/payment-links';
+import { buildQuoteEmailDraft, validateQuoteEmailDraftRequirements } from '@/services/quotes/email-template';
+import type { QuoteEmailFormState } from '@/services/quotes/email-form-state';
 import type { QuoteFormState } from '@/services/quotes/form-state';
+import type { QuoteManualDeliveryFormState } from '@/services/quotes/manual-delivery-form-state';
+import { getQuoteCommercialPaymentMode } from '@/services/quotes/payment-mode';
+import type { PaymentMode } from '@/types/payments';
 import type { QuoteDepositType, QuoteDiscountType, QuoteStatus } from '@/types/quotes';
 import type { PostgrestError } from '@supabase/supabase-js';
 
@@ -125,6 +138,69 @@ async function insertLeadActivity(leadId: string, actorId: string, summary: stri
     details,
     created_by: actorId,
   });
+}
+
+async function ensureQuotePaymentLinkForEmail({
+  quoteId,
+  actorId,
+  paymentMode,
+  payloadSource,
+}: {
+  quoteId: string;
+  actorId: string;
+  paymentMode: PaymentMode;
+  payloadSource: ReturnType<typeof getQuotePaymentLinkPayloadSource>;
+}) {
+  const existingLink = await getLatestPaymentLinkBySourceAndMode('quote', quoteId, paymentMode);
+  if (existingLink?.external_url) {
+    return { link: existingLink, status: 'existing' as const };
+  }
+
+  const { source, system, timezone } = getInternalPaymentsConfig();
+  const payload = buildPaymentLinkPayload({
+    mode: paymentMode,
+    source,
+    system,
+    timezone,
+    payloadSource,
+  });
+
+  const response = await createCentralPaymentLink(payload);
+  const { externalId, externalUrl } = getResponsePaymentLinkData(response);
+  if (!externalUrl) {
+    throw new Error('La API central respondió sin URL de pago. Revisa el contrato de respuesta del endpoint /api/internal/payment-link.');
+  }
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    throw new Error('No fue posible abrir la conexión con Supabase para guardar el payment link.');
+  }
+
+  const { data: inserted, error } = await supabase
+    .from('payment_links')
+    .insert({
+      source_record_type: 'quote',
+      source_record_id: quoteId,
+      payment_mode: paymentMode,
+      currency: 'usd',
+      total_event_amount: payload.metadata.totalEventAmount,
+      amount_to_charge: payload.metadata.amountToCharge,
+      balance_due: payload.metadata.balanceDue,
+      external_provider: 'stripe_api',
+      external_payment_link_id: externalId,
+      external_url: externalUrl,
+      request_payload: payload,
+      response_payload: response,
+      created_by: actorId,
+    })
+    .select('*')
+    .single();
+
+  if (error || !inserted) {
+    throw new Error('Se creó el link en API central, pero no pudimos guardarlo internamente.');
+  }
+
+  return { link: inserted, status: 'auto_generated' as const };
 }
 
 async function syncLeadQuotedTotal(leadId: string, actorId: string) {
@@ -317,4 +393,286 @@ export async function rejectQuoteAction(quoteId: string, leadId: string) {
   revalidatePath(`/leads/${leadId}` as Route);
   revalidatePath(`/cotizaciones/${quoteId}` as Route);
   revalidatePath('/cotizaciones');
+}
+
+export async function createQuotePaymentLinkAction(
+  quoteId: string,
+  _previousState: PreEventPaymentLinkFormState,
+  formData: FormData,
+): Promise<PreEventPaymentLinkFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  }
+
+  const { data: quote } = await supabase.from('quotes').select('*').eq('id', quoteId).maybeSingle();
+  if (!quote) {
+    return { status: 'error', message: 'No encontramos la cotización solicitada.' };
+  }
+
+  const [lead, client, preEvent] = await Promise.all([
+    getLeadById(quote.lead_id),
+    getClientByLeadId(quote.lead_id),
+    getPreEventByQuoteId(quote.id),
+  ]);
+  if (!lead) {
+    return { status: 'error', message: 'No encontramos el lead asociado a la cotización.' };
+  }
+
+  const selectedMode = String(formData.get('payment_mode') ?? 'deposit');
+  const paymentMode: PaymentMode = selectedMode === 'full' ? 'full' : 'deposit';
+  const existingLink = await getLatestPaymentLinkBySourceAndMode('quote', quote.id, paymentMode);
+  if (existingLink?.external_url) {
+    return {
+      status: 'success',
+      message: `Ya existe un payment link (${paymentMode === 'deposit' ? 'depósito' : 'pago completo'}) para esta cotización. Reutiliza el link existente.`,
+    };
+  }
+  const payloadSource = getQuotePaymentLinkPayloadSource({
+    quote,
+    lead,
+    client,
+    preEvent,
+  });
+  const missing = validatePaymentLinkPayloadSource(payloadSource);
+  if (missing.length > 0) {
+    return {
+      status: 'error',
+      message: `No se puede generar el payment link. Falta corregir: ${missing.join(', ')}.`,
+    };
+  }
+
+  try {
+    const { source, system, timezone } = getInternalPaymentsConfig();
+    const payload = buildPaymentLinkPayload({
+      mode: paymentMode,
+      source,
+      system,
+      timezone,
+      payloadSource,
+    });
+
+    const response = await createCentralPaymentLink(payload);
+    const { externalId, externalUrl } = getResponsePaymentLinkData(response);
+    if (!externalUrl) {
+      return {
+        status: 'error',
+        message: 'La API central respondió sin URL de pago. Revisa el contrato de respuesta del endpoint /api/internal/payment-link.',
+      };
+    }
+
+    const { error } = await supabase.from('payment_links').insert({
+      source_record_type: 'quote',
+      source_record_id: quote.id,
+      payment_mode: paymentMode,
+      currency: 'usd',
+      total_event_amount: payload.metadata.totalEventAmount,
+      amount_to_charge: payload.metadata.amountToCharge,
+      balance_due: payload.metadata.balanceDue,
+      external_provider: 'stripe_api',
+      external_payment_link_id: externalId,
+      external_url: externalUrl,
+      request_payload: payload,
+      response_payload: response,
+      created_by: session.user.id,
+    });
+
+    if (error) {
+      return { status: 'error', message: 'Se creó el link en API central, pero no pudimos guardarlo internamente.' };
+    }
+
+    revalidatePath(`/cotizaciones/${quote.id}` as Route);
+    revalidatePath('/cotizaciones' as Route);
+    if (preEvent) {
+      revalidatePath(`/reservas/${preEvent.id}` as Route);
+    }
+
+    return { status: 'success', message: 'Payment link creado y guardado correctamente.' };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'No fue posible crear el payment link con la API central.';
+    return { status: 'error', message };
+  }
+}
+
+export async function sendQuoteEmailAction(
+  quoteId: string,
+  _previousState: QuoteEmailFormState,
+  _formData: FormData,
+): Promise<QuoteEmailFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  }
+
+  const { data: quote } = await supabase.from('quotes').select('*').eq('id', quoteId).maybeSingle();
+  if (!quote) {
+    return { status: 'error', message: 'No encontramos la cotización solicitada.' };
+  }
+
+  const [lead, client, preEvent, paymentLinks] = await Promise.all([
+    getLeadById(quote.lead_id),
+    getClientByLeadId(quote.lead_id),
+    getPreEventByQuoteId(quote.id),
+    getPaymentLinksBySource('quote', quote.id),
+  ]);
+
+  if (!lead) {
+    return { status: 'error', message: 'No encontramos el lead asociado a la cotización.' };
+  }
+
+  const payloadSource = getQuotePaymentLinkPayloadSource({
+    quote,
+    lead,
+    client,
+    preEvent,
+  });
+  const commercialPaymentMode = getQuoteCommercialPaymentMode(quote);
+  const paymentDataMissing = validatePaymentLinkPayloadSource(payloadSource);
+
+  let paymentLinkForEmail =
+    paymentLinks.find((item) => item.payment_mode === commercialPaymentMode.mode) ??
+    null;
+  let paymentLinkStatus: 'existing' | 'auto_generated' | 'missing' = paymentLinkForEmail ? 'existing' : 'missing';
+  if (!paymentLinkForEmail && paymentDataMissing.length === 0) {
+    try {
+      const ensured = await ensureQuotePaymentLinkForEmail({
+        quoteId: quote.id,
+        actorId: session.user.id,
+        paymentMode: commercialPaymentMode.mode,
+        payloadSource,
+      });
+      paymentLinkForEmail = ensured.link;
+      paymentLinkStatus = ensured.status;
+    } catch {
+      paymentLinkStatus = 'missing';
+    }
+  }
+
+  const draft = buildQuoteEmailDraft({
+    quote,
+    lead,
+    client,
+    preEvent,
+    paymentLink: paymentLinkForEmail,
+    paymentLinkStatus,
+    isAutoGeneratedLink: paymentLinkStatus === 'auto_generated',
+  });
+  const missing = validateQuoteEmailDraftRequirements(draft);
+  if (missing.length > 0) {
+    return {
+      status: 'error',
+      message: `No se puede enviar el email. Falta corregir: ${missing.join(', ')}.`,
+    };
+  }
+
+  try {
+    const sent = await sendTransactionalEmail({
+      to: draft.toEmail,
+      subject: draft.subject,
+      html: draft.html,
+      text: draft.text,
+    });
+
+    await supabase.from('quote_email_deliveries').insert({
+      quote_id: quote.id,
+      to_email: draft.toEmail,
+      subject: draft.subject,
+      body_preview: `[${draft.paymentRequest.modeLabel}] ${draft.bodyPreview}`,
+      payment_link_id: paymentLinkForEmail?.id ?? null,
+      status: 'sent',
+      error_message: null,
+      provider: sent.provider,
+      provider_message_id: sent.providerMessageId,
+      sent_by: session.user.id,
+      sent_at: new Date().toISOString(),
+    });
+
+    revalidatePath(`/cotizaciones/${quote.id}` as Route);
+    return { status: 'success', message: `Cotización enviada correctamente a ${draft.toEmail}.` };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'No fue posible enviar la cotización por email.';
+    await supabase.from('quote_email_deliveries').insert({
+      quote_id: quote.id,
+      to_email: draft.toEmail,
+      subject: draft.subject,
+      body_preview: `[${draft.paymentRequest.modeLabel}] ${draft.bodyPreview}`,
+      payment_link_id: paymentLinkForEmail?.id ?? null,
+      status: 'failed',
+      error_message: message,
+      provider: 'resend',
+      provider_message_id: null,
+      sent_by: session.user.id,
+      sent_at: null,
+    });
+
+    revalidatePath(`/cotizaciones/${quote.id}` as Route);
+    return { status: 'error', message: `Error al enviar email: ${message}` };
+  }
+}
+
+export async function registerQuoteManualDeliveryAction(
+  quoteId: string,
+  _previousState: QuoteManualDeliveryFormState,
+  formData: FormData,
+): Promise<QuoteManualDeliveryFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  }
+
+  const { data: quote } = await supabase.from('quotes').select('*').eq('id', quoteId).maybeSingle();
+  if (!quote) {
+    return { status: 'error', message: 'No encontramos la cotización solicitada.' };
+  }
+
+  const channelRaw = String(formData.get('channel') ?? 'manual_link');
+  const channel = channelRaw === 'whatsapp' || channelRaw === 'sms' ? channelRaw : 'manual_link';
+  const paymentMode = String(formData.get('payment_mode') ?? '') === 'full' ? 'full' : 'deposit';
+  const linkUrl = String(formData.get('link_url') ?? '').trim();
+  const paymentLinkIdRaw = String(formData.get('payment_link_id') ?? '').trim();
+  const amountRaw = String(formData.get('amount_to_charge') ?? '').trim();
+  const amountToCharge = amountRaw.length > 0 && Number.isFinite(Number(amountRaw)) ? Number(amountRaw) : null;
+
+  if (!linkUrl) {
+    return { status: 'error', message: 'No se pudo registrar el canal manual porque falta el link compartido.' };
+  }
+
+  if (paymentLinkIdRaw) {
+    const { data: link } = await supabase
+      .from('payment_links')
+      .select('id, source_record_id, source_record_type, payment_mode')
+      .eq('id', paymentLinkIdRaw)
+      .maybeSingle();
+
+    if (!link || link.source_record_type !== 'quote' || link.source_record_id !== quoteId) {
+      return { status: 'error', message: 'El payment link seleccionado no corresponde a esta cotización.' };
+    }
+
+    if (link.payment_mode !== paymentMode) {
+      return { status: 'error', message: 'El payment mode compartido no coincide con el payment link seleccionado.' };
+    }
+  }
+
+  const { error } = await supabase.from('quote_manual_deliveries').insert({
+    quote_id: quoteId,
+    channel,
+    payment_mode: paymentMode,
+    payment_link_id: paymentLinkIdRaw || null,
+    link_url: linkUrl,
+    amount_to_charge: amountToCharge,
+    executed_by: session.user.id,
+  });
+
+  if (error) {
+    return { status: 'error', message: 'No fue posible registrar la trazabilidad del canal manual.' };
+  }
+
+  revalidatePath(`/cotizaciones/${quoteId}` as Route);
+  return { status: 'success', message: `Canal manual registrado (${channel.toUpperCase()}) con ${paymentMode === 'full' ? 'pago completo' : 'depósito'}.` };
 }

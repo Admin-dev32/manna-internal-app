@@ -3,17 +3,27 @@ import Link from 'next/link';
 import { ArrowLeft, CheckCircle2, PencilLine, ReceiptText, UserPlus, XCircle } from 'lucide-react';
 
 import { QuoteFinancialSheet } from '@/components/finance/quote-financial-sheet';
+import { PreEventPaymentLinksCard } from '@/components/pre-events/pre-event-payment-links-card';
+import { QuoteEmailCard } from '@/components/quotes/quote-email-card';
+import { QuoteInvoicesCard } from '@/components/quotes/quote-invoices-card';
 import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
 import { convertLeadToClientAction } from '@/services/clients/actions';
-import { acceptQuoteAction, rejectQuoteAction } from '@/services/quotes/actions';
+import { acceptQuoteAction, createQuotePaymentLinkAction, registerQuoteManualDeliveryAction, rejectQuoteAction, sendQuoteEmailAction } from '@/services/quotes/actions';
+import { issueInvoiceFromQuoteAction } from '@/services/invoices/actions';
+import { buildQuoteEmailDraft, validateQuoteEmailDraftRequirements } from '@/services/quotes/email-template';
+import { getQuoteCommercialPaymentMode } from '@/services/quotes/payment-mode';
+import { getQuotePaymentLinkPayloadSource, validatePaymentLinkPayloadSource } from '@/services/pre-events/payment-links';
 import { QuoteStatusBadge } from '@/components/quotes/quote-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ClientRecord } from '@/types/clients';
 import type { QuoteFinancialSheetDraft } from '@/types/finance';
-import type { LeadProfileOption } from '@/types/leads';
+import type { LeadProfileOption, LeadRecord } from '@/types/leads';
+import type { PaymentLinkRecord } from '@/types/payments';
 import type { PreEventRecord } from '@/types/pre-events';
+import type { QuoteEmailDeliveryRecord, QuoteManualDeliveryRecord } from '@/types/quote-emails';
 import type { QuoteLeadSummary, QuoteRecord } from '@/types/quotes';
+import type { InvoiceRecord } from '@/types/invoices';
 
 function formatCurrency(value: number | string | null) {
   if (value === null || value === '') return 'Sin monto';
@@ -38,20 +48,58 @@ function formatDepositLabel(quote: QuoteRecord) {
 export function QuoteDetail({
   quote,
   lead,
+  leadRecord,
   profiles,
   client,
   preEvent,
+  paymentLinks,
+  emailDeliveries,
+  manualDeliveries,
   canViewFinance,
+  canManageFinanceSheet,
+  canViewInvoices,
+  canManageInvoices,
+  invoices,
   financialSheetDraft,
 }: {
   quote: QuoteRecord;
   lead: QuoteLeadSummary;
+  leadRecord: LeadRecord;
   profiles: Record<string, LeadProfileOption>;
   client: ClientRecord | null;
   preEvent: PreEventRecord | null;
+  paymentLinks: PaymentLinkRecord[];
+  emailDeliveries: QuoteEmailDeliveryRecord[];
+  manualDeliveries: QuoteManualDeliveryRecord[];
   canViewFinance: boolean;
+  canManageFinanceSheet: boolean;
+  canViewInvoices: boolean;
+  canManageInvoices: boolean;
+  invoices: InvoiceRecord[];
   financialSheetDraft: QuoteFinancialSheetDraft | null;
 }) {
+  const quotePaymentLinkAction = createQuotePaymentLinkAction.bind(null, quote.id);
+  const quoteEmailAction = sendQuoteEmailAction.bind(null, quote.id);
+  const issueInvoiceAction = issueInvoiceFromQuoteAction.bind(null, quote.id);
+  const quoteManualDeliveryAction = registerQuoteManualDeliveryAction.bind(null, quote.id);
+  const paymentPayloadSource = getQuotePaymentLinkPayloadSource({
+    quote,
+    lead: leadRecord,
+    client,
+    preEvent,
+  });
+  const paymentMissingFields = validatePaymentLinkPayloadSource(paymentPayloadSource);
+  const commercialPaymentMode = getQuoteCommercialPaymentMode(quote);
+  const activePaymentLink = paymentLinks.find((item) => item.payment_mode === commercialPaymentMode.mode) ?? null;
+  const emailDraft = buildQuoteEmailDraft({
+    quote,
+    lead: leadRecord,
+    client,
+    preEvent,
+    paymentLink: activePaymentLink,
+    paymentLinkStatus: activePaymentLink ? 'existing' : 'missing',
+  });
+  const emailMissingFields = validateQuoteEmailDraftRequirements(emailDraft);
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-5 rounded-[2rem] border border-border bg-slate-950 p-6 text-white shadow-panel sm:p-8">
@@ -168,6 +216,76 @@ export function QuoteDetail({
             </CardContent>
           </Card>
 
+          <PreEventPaymentLinksCard
+            action={quotePaymentLinkAction}
+            paymentLinks={paymentLinks}
+            title="Cobros de cotización"
+            description="Genera payment links compatibles con el sistema maestro usando datos de cotización (y contexto de lead/cliente)."
+            emptyMessage="Esta cotización todavía no tiene payment links registrados."
+          />
+          {paymentMissingFields.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Datos faltantes para cobrar</CardTitle>
+                <CardDescription>
+                  Esta cotización aún no cumple el contrato maestro de metadata. Completa estos campos para poder generar links válidos.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm text-amber-800">
+                {paymentMissingFields.map((item) => (
+                  <div key={item} className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    {item}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              Esta cotización tiene datos mínimos compatibles para crear payment links.
+            </div>
+          )}
+
+          <QuoteEmailCard
+            action={quoteEmailAction}
+            deliveries={emailDeliveries}
+            manualDeliveries={manualDeliveries}
+            manualDeliveryAction={quoteManualDeliveryAction}
+            preview={{
+              toEmail: emailDraft.toEmail,
+              recipientName: emailDraft.recipientName,
+              subject: emailDraft.subject,
+              eventDate: emailDraft.eventDetails.date,
+              eventTime: emailDraft.eventDetails.time,
+              eventAddress: emailDraft.eventDetails.address,
+              serviceLabel: emailDraft.eventDetails.serviceLabel,
+              paymentLinkUrl: emailDraft.paymentLink?.url ?? null,
+              paymentLinkId: activePaymentLink?.id ?? null,
+              paymentModeLabel: emailDraft.paymentLink?.modeLabel ?? null,
+              paymentAmountLabel: emailDraft.paymentLink?.amountToCharge ?? null,
+              paymentModeValue: emailDraft.paymentRequest.mode,
+              paymentAmountValue: commercialPaymentMode.amountToCharge,
+              paymentLinkStatus: emailDraft.paymentLinkStatus,
+              activeModeLabel: commercialPaymentMode.modeLabel,
+              activeModeAmountLabel: commercialPaymentMode.amountToChargeLabel,
+              activeModeRationale: commercialPaymentMode.rationale,
+              brandingCompanyName: emailDraft.branding.companyName,
+              brandingWebsiteUrl: emailDraft.branding.websiteUrl,
+              zelleInstructions: emailDraft.zelle.instructions,
+              zelleRecipientName: emailDraft.zelle.recipientName,
+              zelleRecipientContact: emailDraft.zelle.recipientContact,
+              missing: emailMissingFields,
+            }}
+          />
+
+          {canViewInvoices ? (
+            <QuoteInvoicesCard
+              invoices={invoices}
+              canManage={canManageInvoices}
+              quoteAccepted={quote.status === 'aceptada'}
+              action={issueInvoiceAction}
+            />
+          ) : null}
+
           <Card>
             <CardHeader>
               <CardTitle>Notas y seguimiento</CardTitle>
@@ -181,6 +299,16 @@ export function QuoteDetail({
               <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
                 <p className="font-medium text-foreground">Preparado para siguiente bloque</p>
                 <p className="mt-2">Desde aquí podrá derivarse la aceptación comercial, la conversión a cliente y la base para un evento futuro.</p>
+              </div>
+              <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">Origen de datos para cobro compatible</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <li>Cliente: usa primero cliente convertido y, si no existe, usa datos del lead.</li>
+                  <li>Evento: prioriza datos confirmados del pre-evento; si no existen, toma datos tentativos del lead.</li>
+                  <li>Bar/servings: toma booked_service + confirmed_guests del pre-evento; fallback a service_interest + guest_count del lead.</li>
+                  <li>Fallback tentativo actual: {leadRecord.tentative_event_date ?? 'sin fecha'} · {leadRecord.tentative_event_time ?? 'sin hora'}.</li>
+                  <li>Si falta algo, el sistema mostrará exactamente qué campo completar antes de generar el link.</li>
+                </ul>
               </div>
             </CardContent>
           </Card>
@@ -205,7 +333,7 @@ export function QuoteDetail({
         <QuoteFinancialSheet
           quoteId={quote.id}
           draft={financialSheetDraft}
-          canManage
+          canManage={canManageFinanceSheet}
         />
       ) : null}
 

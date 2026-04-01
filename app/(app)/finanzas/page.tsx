@@ -1,12 +1,25 @@
+import { ExpensesModule } from '@/components/finance/expenses-module';
 import { FinancialSettingsForm } from '@/components/finance/financial-settings-form';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { requirePermission } from '@/lib/auth/guards';
-import { getFinancialSettings } from '@/services/finance/queries';
+import { hasPermission } from '@/lib/auth/permissions';
+import { getFinancialExpenses, getFinancialSettings } from '@/services/finance/queries';
 
 export default async function FinanzasPage() {
-  const [session, { settings, expenses }] = await Promise.all([requirePermission('finance.view'), getFinancialSettings()]);
-  const canEditDefaults = session.user?.rol === 'owner';
+  const [session, { settings, expenses }, expensesModuleData] = await Promise.all([
+    requirePermission('finance.view'),
+    getFinancialSettings(),
+    getFinancialExpenses(),
+  ]);
+
+  const canEditDefaults = Boolean(session.user && hasPermission(session.user, 'finance.manage_defaults'));
+  const canViewExpenses = Boolean(
+    session.user &&
+      (hasPermission(session.user, 'finance.expenses.view') || hasPermission(session.user, 'finance.expenses.manage') || hasPermission(session.user, 'finance.expenses.approve')),
+  );
+  const canManageExpenses = Boolean(session.user && hasPermission(session.user, 'finance.expenses.manage'));
+  const canApproveExpenses = Boolean(session.user && hasPermission(session.user, 'finance.expenses.approve'));
 
   return (
     <div className="flex flex-col gap-6">
@@ -14,11 +27,12 @@ export default async function FinanzasPage() {
         <div className="flex flex-wrap items-center gap-3">
           <Badge variant="secondary">Finanzas internas</Badge>
           <Badge className="bg-white/10 text-white">{canEditDefaults ? 'Owner editable' : 'Acceso restringido'}</Badge>
+          <Badge className="bg-white/10 text-white">{canViewExpenses ? 'Spending activo' : 'Spending oculto por permisos'}</Badge>
         </div>
         <div className="space-y-2">
-          <h1 className="text-2xl font-semibold sm:text-3xl">Defaults globales financieros</h1>
+          <h1 className="text-2xl font-semibold sm:text-3xl">Defaults globales + spending transaccional</h1>
           <p className="max-w-3xl text-sm text-slate-300 sm:text-base">
-            Configura tax reserve, comisión y gastos opcionales que servirán como punto de partida para nuevas hojas financieras ligadas a cotizaciones.
+            La hoja de quote sigue siendo planeación financiera. El submódulo de spending captura gastos reales operativos para trazabilidad y aprobación.
           </p>
         </div>
       </section>
@@ -26,6 +40,13 @@ export default async function FinanzasPage() {
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-6">
           <FinancialSettingsForm settings={settings} expenses={expenses} canEdit={canEditDefaults} />
+          <ExpensesModule
+            expenses={expensesModuleData.expenses}
+            eventOptions={expensesModuleData.eventOptions}
+            canView={canViewExpenses}
+            canManage={canManageExpenses}
+            canApprove={canApproveExpenses}
+          />
         </div>
 
         <div className="space-y-6">
@@ -40,12 +61,12 @@ export default async function FinanzasPage() {
                 <p className="mt-2">Cada hoja financiera se liga primero a una cotización, que ya es la base económica del flujo comercial.</p>
               </div>
               <div className="rounded-2xl bg-background p-4">
-                <p className="font-medium text-foreground">Crecimiento futuro</p>
-                <p className="mt-2">Reservas ya nacen desde `source_quote_id`, así que más adelante pueden consumir la misma hoja o derivar una extensión operativa sin duplicar lógica.</p>
+                <p className="font-medium text-foreground">Spending transaccional nuevo</p>
+                <p className="mt-2">Los gastos reales no reemplazan la proyección de la quote; se registran como transacciones con scope general o por evento.</p>
               </div>
               <div className="rounded-2xl bg-background p-4">
                 <p className="font-medium text-foreground">Protección</p>
-                <p className="mt-2">Esta pantalla exige `finance.view`. Owner tiene acceso completo; manager accede según el permiso asignado; empleado no entra.</p>
+                <p className="mt-2">Esta pantalla exige `finance.view`; el bloque de spending aplica permisos finos de view/manage/approve.</p>
               </div>
             </CardContent>
           </Card>

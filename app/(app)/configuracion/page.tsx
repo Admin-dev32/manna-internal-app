@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ClipboardList, ShieldCheck, Users } from 'lucide-react';
+import { ClipboardList, ListChecks, ShieldCheck, Users } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ export default async function ConfiguracionPage() {
   const session = await requireAnyPermission(['settings.view', 'admin.users.manage']);
   const canManageUsers = Boolean(session.user && hasPermission(session.user, 'admin.users.manage'));
   const canViewAdvancedSettings = Boolean(session.user && hasPermission(session.user, 'settings.view'));
+  const canViewInventoryTemplates = Boolean(session.user && (hasPermission(session.user, 'inventory.templates.view') || hasPermission(session.user, 'inventory.templates.manage')));
 
   return (
     <div className="space-y-6">
@@ -71,6 +72,30 @@ export default async function ConfiguracionPage() {
               </p>
               <Button asChild>
                 <Link href="/configuracion/plantillas-operativas">Administrar plantillas</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {canViewInventoryTemplates ? (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <ListChecks className="size-5" />
+                </div>
+                <div>
+                  <CardTitle>Listas maestras por barra</CardTitle>
+                  <CardDescription>Materiales reutilizables para sembrar requirements en eventos reales.</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Esta capa convive con plantillas operativas, enfocada solo en inventario reutilizable por barra.
+              </p>
+              <Button asChild>
+                <Link href="/configuracion/listas-maestras-inventario">Administrar listas maestras</Link>
               </Button>
             </CardContent>
           </Card>
