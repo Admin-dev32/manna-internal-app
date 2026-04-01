@@ -4,9 +4,10 @@ import type { Route } from 'next';
 import { revalidatePath } from 'next/cache';
 
 import { requireActiveSession } from '@/lib/auth/guards';
+import { hasPermission } from '@/lib/auth/permissions';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getEventById } from '@/services/events/queries';
-import type { InventoryItemRecord } from '@/types/inventory';
+import type { InventoryItemRecord, EventInventoryPrepStatus } from '@/types/inventory';
 
 function normalizeOptionalString(value: FormDataEntryValue | null) {
   const normalized = String(value ?? '').trim();
@@ -23,11 +24,31 @@ function normalizeNonNegativeNumber(value: FormDataEntryValue | null) {
   return numericValue;
 }
 
+function normalizePrepStatus(value: FormDataEntryValue | null): EventInventoryPrepStatus {
+  const normalized = String(value ?? '').trim();
+  if (normalized === 'pendiente' || normalized === 'contado' || normalized === 'faltante' || normalized === 'listo') {
+    return normalized;
+  }
+
+  return 'pendiente';
+}
+
+function derivePrepStatus(quantityRequired: number, quantityCounted: number | null, requestedStatus: EventInventoryPrepStatus) {
+  if (requestedStatus === 'pendiente') return 'pendiente' as EventInventoryPrepStatus;
+
+  const counted = quantityCounted ?? 0;
+  if (counted <= 0) return 'pendiente';
+  if (counted < quantityRequired) return 'faltante';
+  if (counted === quantityRequired) return requestedStatus === 'listo' ? 'listo' : 'contado';
+  return 'listo';
+}
+
 async function revalidateInventoryPaths(eventId?: string) {
   revalidatePath('/inventario' as Route);
   if (eventId) {
     revalidatePath('/eventos' as Route);
     revalidatePath(`/eventos/${eventId}` as Route);
+    revalidatePath('/notificaciones' as Route);
   }
 }
 
@@ -55,7 +76,8 @@ async function getEventInventoryRequirementById(eventId: string, requirementId: 
     event_id: string;
     inventory_item_id: string;
     quantity_required: number;
-    quantity_used: number | null;
+    quantity_counted: number | null;
+    prep_status: EventInventoryPrepStatus;
   } | null) ?? null;
 }
 
@@ -64,6 +86,7 @@ export async function createInventoryItemAction(formData: FormData) {
   const supabase = await createSupabaseServerClient();
 
   if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.manage')) return;
 
   const name = String(formData.get('name') ?? '').trim();
   const category = normalizeOptionalString(formData.get('category'));
@@ -98,6 +121,7 @@ export async function updateInventoryItemAction(itemId: string, formData: FormDa
   const supabase = await createSupabaseServerClient();
 
   if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.manage')) return;
 
   const existingItem = await getInventoryItemById(itemId);
   if (!existingItem) return;
@@ -137,17 +161,22 @@ export async function createEventInventoryRequirementAction(eventId: string, for
   const supabase = await createSupabaseServerClient();
 
   if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.prepare') && !hasPermission(session.user, 'inventory.manage')) return;
 
   const event = await getEventById(eventId);
   if (!event) return;
 
   const inventoryItemId = String(formData.get('inventory_item_id') ?? '').trim();
   const quantityRequired = normalizeNonNegativeNumber(formData.get('quantity_required'));
+  const quantityCountedInput = normalizeOptionalString(formData.get('quantity_counted'));
+  const quantityCounted = quantityCountedInput == null ? null : normalizeNonNegativeNumber(quantityCountedInput);
   const quantityUsedInput = normalizeOptionalString(formData.get('quantity_used'));
   const quantityUsed = quantityUsedInput == null ? null : normalizeNonNegativeNumber(quantityUsedInput);
   const note = normalizeOptionalString(formData.get('note'));
+  const prepNotes = normalizeOptionalString(formData.get('prep_notes'));
+  const requestedPrepStatus = normalizePrepStatus(formData.get('prep_status'));
 
-  if (!inventoryItemId || quantityRequired == null || quantityUsedInput != null && quantityUsed == null) {
+  if (!inventoryItemId || quantityRequired == null || quantityUsedInput != null && quantityUsed == null || quantityCountedInput != null && quantityCounted == null) {
     return;
   }
 
@@ -155,6 +184,10 @@ export async function createEventInventoryRequirementAction(eventId: string, for
   if (!item || !item.is_active) {
     return;
   }
+
+  const prepStatus = derivePrepStatus(quantityRequired, quantityCounted, requestedPrepStatus);
+  const nowIso = new Date().toISOString();
+  const checkedAt = quantityCounted != null ? nowIso : null;
 
   const { data: existingRequirement } = await supabase
     .from('event_inventory_requirements')
@@ -168,8 +201,14 @@ export async function createEventInventoryRequirementAction(eventId: string, for
       .from('event_inventory_requirements')
       .update({
         quantity_required: quantityRequired,
+        quantity_counted: quantityCounted,
         quantity_used: quantityUsed,
+        prep_status: prepStatus,
+        prep_notes: prepNotes,
         note,
+        checked_by: quantityCounted != null ? session.user.id : null,
+        checked_at: checkedAt,
+        updated_by: session.user.id,
       })
       .eq('id', existingRequirement.id);
   } else {
@@ -177,8 +216,16 @@ export async function createEventInventoryRequirementAction(eventId: string, for
       event_id: eventId,
       inventory_item_id: inventoryItemId,
       quantity_required: quantityRequired,
+      quantity_counted: quantityCounted,
       quantity_used: quantityUsed,
+      prep_status: prepStatus,
+      prep_notes: prepNotes,
       note,
+      checked_by: quantityCounted != null ? session.user.id : null,
+      checked_at: checkedAt,
+      source_type: 'manual',
+      source_template_id: null,
+      updated_by: session.user.id,
     });
   }
 
@@ -190,6 +237,7 @@ export async function updateEventInventoryRequirementAction(eventId: string, req
   const supabase = await createSupabaseServerClient();
 
   if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.prepare') && !hasPermission(session.user, 'inventory.manage')) return;
 
   const event = await getEventById(eventId);
   const existingRequirement = await getEventInventoryRequirementById(eventId, requirementId);
@@ -197,11 +245,15 @@ export async function updateEventInventoryRequirementAction(eventId: string, req
 
   const inventoryItemId = String(formData.get('inventory_item_id') ?? '').trim();
   const quantityRequired = normalizeNonNegativeNumber(formData.get('quantity_required'));
+  const quantityCountedInput = normalizeOptionalString(formData.get('quantity_counted'));
+  const quantityCounted = quantityCountedInput == null ? null : normalizeNonNegativeNumber(quantityCountedInput);
   const quantityUsedInput = normalizeOptionalString(formData.get('quantity_used'));
   const quantityUsed = quantityUsedInput == null ? null : normalizeNonNegativeNumber(quantityUsedInput);
   const note = normalizeOptionalString(formData.get('note'));
+  const prepNotes = normalizeOptionalString(formData.get('prep_notes'));
+  const requestedPrepStatus = normalizePrepStatus(formData.get('prep_status'));
 
-  if (!inventoryItemId || quantityRequired == null || quantityUsedInput != null && quantityUsed == null) {
+  if (!inventoryItemId || quantityRequired == null || quantityUsedInput != null && quantityUsed == null || quantityCountedInput != null && quantityCounted == null) {
     return;
   }
 
@@ -210,13 +262,21 @@ export async function updateEventInventoryRequirementAction(eventId: string, req
     return;
   }
 
+  const prepStatus = derivePrepStatus(quantityRequired, quantityCounted, requestedPrepStatus);
+
   await supabase
     .from('event_inventory_requirements')
     .update({
       inventory_item_id: inventoryItemId,
       quantity_required: quantityRequired,
+      quantity_counted: quantityCounted,
       quantity_used: quantityUsed,
+      prep_status: prepStatus,
+      prep_notes: prepNotes,
       note,
+      checked_by: quantityCounted != null ? session.user.id : null,
+      checked_at: quantityCounted != null ? new Date().toISOString() : null,
+      updated_by: session.user.id,
     })
     .eq('id', requirementId)
     .eq('event_id', eventId);
@@ -229,6 +289,7 @@ export async function removeEventInventoryRequirementAction(eventId: string, req
   const supabase = await createSupabaseServerClient();
 
   if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.prepare') && !hasPermission(session.user, 'inventory.manage')) return;
 
   const event = await getEventById(eventId);
   const existingRequirement = await getEventInventoryRequirementById(eventId, requirementId);

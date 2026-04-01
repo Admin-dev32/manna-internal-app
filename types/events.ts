@@ -10,6 +10,7 @@ export const EVENT_ASSIGNMENT_ROLES = ['lider', 'apoyo', 'setup', 'general'] as 
 export const EVENT_ASSIGNMENT_STATUSES = ['pendiente', 'confirmado'] as const;
 export const EVENT_TASK_STATUSES = ['pendiente', 'en_progreso', 'completada', 'bloqueada'] as const;
 export const EVENT_TASK_PRIORITIES = ['baja', 'media', 'alta', 'urgente'] as const;
+export const TASK_SOURCE_TYPES = ['event', 'project', 'list', 'workspace'] as const;
 
 export type EventStatus = (typeof EVENT_STATUSES)[number];
 export type EventChecklistKey = (typeof EVENT_CHECKLIST_KEYS)[number];
@@ -17,6 +18,7 @@ export type EventAssignmentRole = (typeof EVENT_ASSIGNMENT_ROLES)[number];
 export type EventAssignmentStatus = (typeof EVENT_ASSIGNMENT_STATUSES)[number];
 export type EventTaskStatus = (typeof EVENT_TASK_STATUSES)[number];
 export type EventTaskPriority = (typeof EVENT_TASK_PRIORITIES)[number];
+export type TaskSourceType = (typeof TASK_SOURCE_TYPES)[number];
 
 export interface EventRecord {
   id: string;
@@ -82,6 +84,11 @@ export interface EventStaffAssignmentRecord {
 export interface EventTaskRecord {
   id: string;
   event_id: string;
+  source_type?: TaskSourceType;
+  source_event_id?: string | null;
+  source_project_id?: string | null;
+  source_list_id?: string | null;
+  source_workspace_id?: string | null;
   assigned_profile_id: string;
   title: string;
   description: string | null;
@@ -89,6 +96,8 @@ export interface EventTaskRecord {
   status: EventTaskStatus;
   due_at: string | null;
   internal_note: string | null;
+  recurring_rule_id?: string | null;
+  recurring_scheduled_for?: string | null;
   created_by: string;
   updated_by: string;
   created_at: string;

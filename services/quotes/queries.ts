@@ -3,8 +3,11 @@ import { notFound } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getClientByLeadId } from '@/services/clients/queries';
 import { getLeadById } from '@/services/leads/queries';
+import { getPaymentLinksBySource } from '@/services/payments/queries';
 import { getPreEventByQuoteId } from '@/services/pre-events/queries';
-import type { LeadProfileOption } from '@/types/leads';
+import type { LeadProfileOption, LeadRecord } from '@/types/leads';
+import type { PaymentLinkRecord } from '@/types/payments';
+import type { QuoteEmailDeliveryRecord, QuoteManualDeliveryRecord } from '@/types/quote-emails';
 import type { QuoteLeadSummary, QuoteRecord } from '@/types/quotes';
 
 async function getProfilesMap(ids: string[]) {
@@ -83,15 +86,58 @@ export async function getQuoteDetailPageData(quoteId: string) {
     notFound();
   }
 
-  const [client, preEvent] = await Promise.all([getClientByLeadId(quote.lead_id), getPreEventByQuoteId(quote.id)]);
+  const [client, preEvent, leadRecord, paymentLinks, emailDeliveries, manualDeliveries] = await Promise.all([
+    getClientByLeadId(quote.lead_id),
+    getPreEventByQuoteId(quote.id),
+    getLeadById(quote.lead_id),
+    getPaymentLinksBySource('quote', quote.id),
+    getQuoteEmailDeliveriesByQuoteId(quote.id),
+    getQuoteManualDeliveriesByQuoteId(quote.id),
+  ]);
+
+  if (!leadRecord) {
+    notFound();
+  }
 
   return {
     quote,
     lead,
+    leadRecord: leadRecord as LeadRecord,
     client,
     preEvent,
+    paymentLinks: paymentLinks as PaymentLinkRecord[],
+    emailDeliveries: emailDeliveries as QuoteEmailDeliveryRecord[],
+    manualDeliveries: manualDeliveries as QuoteManualDeliveryRecord[],
     profileMap,
   };
+}
+
+export async function getQuoteEmailDeliveriesByQuoteId(quoteId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as QuoteEmailDeliveryRecord[];
+
+  const { data } = await supabase
+    .from('quote_email_deliveries')
+    .select('*')
+    .eq('quote_id', quoteId)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  return (data ?? []) as QuoteEmailDeliveryRecord[];
+}
+
+export async function getQuoteManualDeliveriesByQuoteId(quoteId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as QuoteManualDeliveryRecord[];
+
+  const { data } = await supabase
+    .from('quote_manual_deliveries')
+    .select('*')
+    .eq('quote_id', quoteId)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  return (data ?? []) as QuoteManualDeliveryRecord[];
 }
 
 export async function getQuotesOverviewPageData() {

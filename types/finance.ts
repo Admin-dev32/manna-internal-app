@@ -4,6 +4,13 @@ export const FINANCIAL_PERCENTAGE_BASES = ['gross_revenue', 'after_tax', 'after_
 export type FinancialExpenseType = (typeof FINANCIAL_EXPENSE_TYPES)[number];
 export type FinancialPercentageBase = (typeof FINANCIAL_PERCENTAGE_BASES)[number];
 
+
+export const FINANCIAL_EXPENSE_SCOPES = ['event', 'general'] as const;
+export const FINANCIAL_EXPENSE_STATUSES = ['draft', 'submitted', 'approved', 'rejected'] as const;
+
+export type FinancialExpenseScope = (typeof FINANCIAL_EXPENSE_SCOPES)[number];
+export type FinancialExpenseStatus = (typeof FINANCIAL_EXPENSE_STATUSES)[number];
+
 export interface FinancialSettingsRecord {
   id: string;
   config_key: string;
@@ -41,6 +48,17 @@ export interface QuoteFinancialSheetRecord {
   updated_at: string;
 }
 
+export interface FinancialChangeLogRecord {
+  id: string;
+  entity_type: 'settings_defaults' | 'quote_sheet' | 'invoice' | 'expense';
+  quote_id: string | null;
+  settings_id: string | null;
+  change_kind: string;
+  summary_payload: Record<string, unknown>;
+  changed_by: string;
+  created_at: string;
+}
+
 export interface QuoteFinancialExpenseRecord {
   id: string;
   sheet_id: string;
@@ -69,6 +87,7 @@ export interface QuoteFinancialSheetDraft {
   expenses: EditableFinancialExpense[];
   initialGrossRevenue: number;
   revenueBaseSource: 'quote_total' | 'persisted_sheet';
+  latestChange: FinancialChangeLogRecord | null;
   defaults: {
     settingsId: string | null;
     taxReservePercentage: number | string | null;
@@ -96,4 +115,33 @@ export interface FinancialCalculationSummary {
   totalExtraExpenses: number;
   netProfit: number;
   expenses: FinancialCalculationExpenseLine[];
+}
+
+
+export interface FinancialExpenseRecord {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string;
+  expense_scope: FinancialExpenseScope;
+  status: FinancialExpenseStatus;
+  amount: number | string;
+  currency: string;
+  expense_date: string;
+  event_id: string | null;
+  quote_id: string | null;
+  vendor_name: string | null;
+  notes: string | null;
+  receipt_file_name: string | null;
+  receipt_storage_bucket: string | null;
+  receipt_storage_path: string | null;
+  receipt_metadata: Record<string, unknown>;
+  submitted_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejection_reason: string | null;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
 }
