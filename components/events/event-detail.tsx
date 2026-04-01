@@ -4,9 +4,12 @@ import { CalendarClock, CheckCircle2, Circle, Clock3, FileText, MapPin, Trash2, 
 
 import { EventStatusBadge } from '@/components/events/event-status-badge';
 import { EventTasksSection } from '@/components/tasks/event-tasks-section';
+import { RecurringTaskRulesSection } from '@/components/tasks/recurring-task-rules-section';
 import { EventInventorySection } from '@/components/inventory/event-inventory-section';
+import { EventExpensesCard } from '@/components/finance/event-expenses-card';
 import { FinancialSummaryCard } from '@/components/finance/financial-summary-card';
 import { EventTemplateSection } from '@/components/templates/event-template-section';
+import { EventCalendarSyncCard } from '@/components/events/event-calendar-sync-card';
 import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,14 +26,26 @@ import {
 import {
   createEventStaffAssignmentAction,
   removeEventStaffAssignmentAction,
+  syncEventToGoogleCalendarAction,
   updateEventOperationalNotesAction,
   updateEventStaffAssignmentAction,
   updateEventStatusAction,
   toggleEventChecklistItemAction,
 } from '@/services/events/actions';
+import { validateEventCalendarRequirements } from '@/services/events/calendar';
+import type { EventCalendarSyncRecord } from '@/types/calendar';
 import type { ClientRecord } from '@/types/clients';
+import type { EmployeeEventReportRecord, EmployeeReportEvidenceRecord } from '@/types/employees';
 import type { EventChecklistItemRecord, EventChecklistProgress, EventFinanceSnapshot, EventRecord, EventStaffAssignmentRecord, EventTaskRecord } from '@/types/events';
-import type { EventInventoryRequirementRecord, InventoryAvailabilitySummary, InventoryItemRecord } from '@/types/inventory';
+import type { RecurringTaskRuleRecord } from '@/types/recurring-tasks';
+import type { FinancialExpenseRecord } from '@/types/finance';
+import type {
+  BarMasterTemplateApplicationRecord,
+  BarMasterTemplateRecord,
+  EventInventoryRequirementRecord,
+  InventoryAvailabilitySummary,
+  InventoryItemRecord,
+} from '@/types/inventory';
 import type { LeadProfileOption, LeadRecord } from '@/types/leads';
 import type {
   EventOperationalTemplateApplicationRecord,
@@ -40,6 +55,16 @@ import type {
 } from '@/types/operational-templates';
 import type { PreEventRecord } from '@/types/pre-events';
 import type { QuoteRecord } from '@/types/quotes';
+import type { EventOperationalHubStatus, EventOperationalSignal } from '@/services/events/queries';
+
+const HUB_STATUS_LABELS: Record<EventOperationalHubStatus, string> = {
+  pendiente: 'Pendiente',
+  listo_para_operar: 'Listo para operar',
+  en_preparacion: 'En preparación',
+  en_servicio: 'En servicio',
+  cerrado: 'Cerrado',
+  con_incidencias: 'Con incidencias',
+};
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('es-MX', { dateStyle: 'full' }).format(new Date(`${value}T00:00:00`));
@@ -62,9 +87,19 @@ export function EventDetail({
   checklistProgress,
   assignments,
   tasks,
+  recurringTaskRules,
+  canViewTasks,
+  canManageTasks,
+  canAssignTasks,
+  canUpdateTaskStatus,
+  canViewChat,
+  canViewInventory,
+  canPrepareInventory,
   inventoryItems,
   inventoryRequirements,
   inventoryAvailabilityByItem,
+  barMasterTemplates,
+  barMasterTemplateApplications,
   applicableOperationalTemplates,
   operationalTemplateApplications,
   operationalTemplateProfiles,
@@ -72,6 +107,14 @@ export function EventDetail({
   profiles,
   financeSummary,
   canViewFinance,
+  canViewExpenses,
+  eventExpenses,
+  calendarSync,
+  operationalHubStatus,
+  operationalSignals,
+  employeeReports,
+  reportEvidencesByReport,
+  availabilityRows,
 }: {
   event: EventRecord;
   client: ClientRecord;
@@ -82,9 +125,19 @@ export function EventDetail({
   checklistProgress: EventChecklistProgress;
   assignments: EventStaffAssignmentRecord[];
   tasks: EventTaskRecord[];
+  recurringTaskRules: RecurringTaskRuleRecord[];
+  canViewTasks: boolean;
+  canManageTasks: boolean;
+  canAssignTasks: boolean;
+  canUpdateTaskStatus: boolean;
+  canViewChat: boolean;
+  canViewInventory: boolean;
+  canPrepareInventory: boolean;
   inventoryItems: InventoryItemRecord[];
   inventoryRequirements: EventInventoryRequirementRecord[];
   inventoryAvailabilityByItem: Record<string, InventoryAvailabilitySummary>;
+  barMasterTemplates: BarMasterTemplateRecord[];
+  barMasterTemplateApplications: BarMasterTemplateApplicationRecord[];
   applicableOperationalTemplates: Array<{
     template: {
       id: string;
@@ -104,10 +157,22 @@ export function EventDetail({
   profiles: Record<string, LeadProfileOption>;
   financeSummary: EventFinanceSnapshot | null;
   canViewFinance: boolean;
+  canViewExpenses: boolean;
+  eventExpenses: FinancialExpenseRecord[];
+  calendarSync: EventCalendarSyncRecord | null;
+  operationalHubStatus: EventOperationalHubStatus;
+  operationalSignals: EventOperationalSignal[];
+  employeeReports: EmployeeEventReportRecord[];
+  reportEvidencesByReport: Record<string, Array<EmployeeReportEvidenceRecord & { signed_url: string | null }>>;
+  availabilityRows: Array<{ profile_id: string; reason: string; created_at: string; availability_status: string }>;
 }) {
   const allowedTransitions = EVENT_STATUS_TRANSITIONS[event.status];
   const confirmedAssignments = assignments.filter((assignment) => assignment.assignment_status === 'confirmado').length;
   const pendingAssignments = assignments.length - confirmedAssignments;
+  const pendingReviewReports = employeeReports.filter((report) => report.review_status === 'pendiente_revision' || report.review_status === 'requiere_correccion').length;
+  const bonusReleasedReports = employeeReports.filter((report) => report.review_status === 'bonus_liberado').length;
+  const calendarRequirements = validateEventCalendarRequirements(event, client);
+  const calendarAction = syncEventToGoogleCalendarAction.bind(null, event.id);
 
   return (
     <div className="flex flex-col gap-6">
@@ -138,6 +203,36 @@ export function EventDetail({
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-6">
+          <EventCalendarSyncCard sync={calendarSync} requirements={calendarRequirements} action={calendarAction} />
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Hub operativo final del evento</CardTitle>
+              <CardDescription>Consolidación práctica de ejecución real: calendar, staff, reportes y señales de riesgo.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={operationalHubStatus === 'con_incidencias' ? 'warning' : operationalHubStatus === 'cerrado' ? 'outline' : 'success'}>
+                  {HUB_STATUS_LABELS[operationalHubStatus]}
+                </Badge>
+                <Badge variant="outline">Estado base: {EVENT_STATUS_LABELS[event.status]}</Badge>
+              </div>
+              <div className="grid gap-3 md:grid-cols-4">
+                <InfoItem icon={Users} label="Staff confirmado" value={`${confirmedAssignments}/${assignments.length}`} />
+                <InfoItem icon={FileText} label="Reportes" value={employeeReports.length.toString()} />
+                <InfoItem icon={Clock3} label="Pendientes revisión" value={pendingReviewReports.toString()} />
+                <InfoItem icon={CheckCircle2} label="Bonus liberado" value={bonusReleasedReports.toString()} />
+              </div>
+              <div className="space-y-2">
+                {operationalSignals.map((signal) => (
+                  <div key={signal.key} className="rounded-2xl border border-border bg-muted/30 px-4 py-3 text-sm">
+                    <span className="font-semibold">{signal.level.toUpperCase()}:</span> {signal.message}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Detalle operativo</CardTitle>
@@ -361,8 +456,103 @@ export function EventDetail({
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle>Ejecución de staff: reportes y evidencias</CardTitle>
+              <CardDescription>Lo que ya reportó el equipo en campo para este evento, con visibilidad operativa centralizada.</CardDescription>
+              <div>
+                <Button asChild variant="outline" size="sm">
+                  <Link href={'/empleados/revision' as Route}>Ir a revisión gerencial</Link>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {availabilityRows.length > 0 ? (
+                <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm">
+                  <p className="font-semibold text-amber-900">Avisos de inasistencia</p>
+                  {availabilityRows.map((item, index) => (
+                    <p key={`${item.profile_id}-${index}`} className="text-amber-800">
+                      {profiles[item.profile_id]?.full_name ?? 'Empleado'}: {item.reason}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
 
-          <EventTasksSection eventId={event.id} tasks={tasks} assignments={assignments} profiles={profiles} />
+              {employeeReports.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
+                  Aún no hay reportes del staff para este evento.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {employeeReports.slice(0, 12).map((report) => (
+                    <div key={report.id} className="rounded-2xl border border-border bg-background p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">{report.report_stage.replaceAll('_', ' ')}</Badge>
+                        <Badge variant={report.review_status === 'bonus_liberado' ? 'success' : report.review_status === 'requiere_correccion' ? 'warning' : 'outline'}>
+                          {report.review_status.replaceAll('_', ' ')}
+                        </Badge>
+                        {report.bonus_amount ? <Badge variant="success">Bonus: ${report.bonus_amount.toFixed(2)}</Badge> : null}
+                      </div>
+                      <p className="mt-2 text-sm text-muted-foreground">{report.status_update ?? report.service_notes ?? 'Sin detalle textual.'}</p>
+                      {(reportEvidencesByReport[report.id]?.length ?? 0) > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {reportEvidencesByReport[report.id].map((evidence) => (
+                            <a
+                              key={evidence.id}
+                              href={evidence.signed_url ?? '#'}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="rounded-xl border px-3 py-2 text-xs text-primary hover:bg-primary/5"
+                            >
+                              Evidencia: {evidence.file_name} {evidence.is_discarded ? '(descartada)' : ''}
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-muted-foreground">Sin evidencias adjuntas.</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+
+          {canViewTasks ? (
+            <RecurringTaskRulesSection
+              eventId={event.id}
+              rules={recurringTaskRules}
+              profiles={profiles}
+              canManageTasks={canManageTasks}
+            />
+          ) : null}
+
+          {canViewTasks ? (
+            <EventTasksSection
+              eventId={event.id}
+              tasks={tasks}
+              assignments={assignments}
+              profiles={profiles}
+              canManageTasks={canManageTasks}
+              canAssignTasks={canAssignTasks}
+              canUpdateTaskStatus={canUpdateTaskStatus}
+            />
+          ) : null}
+
+          {canViewChat ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Chat del evento</CardTitle>
+                <CardDescription>Canal de coordinación del equipo para este evento, separado del timeline contextual.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button asChild variant="outline">
+                  <Link href={`/chat?scope=event&eventId=${event.id}` as Route}>Abrir chat de evento</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <EventTemplateSection
             eventId={event.id}
@@ -374,12 +564,18 @@ export function EventDetail({
 
           <RecordTimelineSection entityType="event" entityId={event.id} returnPath={`/eventos/${event.id}`} />
 
-          <EventInventorySection
-            eventId={event.id}
-            inventoryItems={inventoryItems}
-            requirements={inventoryRequirements}
-            availabilityByItem={inventoryAvailabilityByItem}
-          />
+          {canViewInventory ? (
+            <EventInventorySection
+              eventId={event.id}
+              inventoryItems={inventoryItems}
+              requirements={inventoryRequirements}
+              availabilityByItem={inventoryAvailabilityByItem}
+              profiles={profiles}
+              canPrepareInventory={canPrepareInventory}
+              barMasterTemplates={barMasterTemplates}
+              barMasterApplications={barMasterTemplateApplications}
+            />
+          ) : null}
 
           <Card>
             <CardHeader>
@@ -406,7 +602,7 @@ export function EventDetail({
           <Card>
             <CardHeader>
               <CardTitle>Estados del evento</CardTitle>
-              <CardDescription>{EVENT_STATUS_DESCRIPTIONS[event.status]}</CardDescription>
+              <CardDescription>{EVENT_STATUS_DESCRIPTIONS[event.status]} · Estado operativo derivado: {HUB_STATUS_LABELS[operationalHubStatus]}.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-2xl border border-border bg-background p-4">
@@ -468,6 +664,8 @@ export function EventDetail({
           description="Se reutiliza la hoja financiera existente de la cotización origen cuando el usuario tiene permiso financiero."
         />
       ) : null}
+
+      {canViewExpenses ? <EventExpensesCard expenses={eventExpenses} /> : null}
     </div>
   );
 }

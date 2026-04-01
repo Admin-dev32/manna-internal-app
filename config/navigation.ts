@@ -8,6 +8,7 @@ export type NavigationIconKey =
   | 'cotizaciones'
   | 'eventos'
   | 'tareas'
+  | 'chat'
   | 'notificaciones'
   | 'comunicacion'
   | 'empleados'
@@ -95,6 +96,14 @@ export const navigationItems: NavigationItem[] = [
     icon: 'tareas',
     permission: 'tasks.view',
     matchPrefixes: ['/tareas'],
+  },
+  {
+    href: '/chat',
+    label: 'Chat',
+    description: 'Canal global de equipo y conversación por evento.',
+    icon: 'chat',
+    permission: 'chat.view',
+    matchPrefixes: ['/chat'],
   },
   {
     href: '/notificaciones',

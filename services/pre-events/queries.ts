@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getClientById, getClientByLeadId } from '@/services/clients/queries';
 import { getLeadById } from '@/services/leads/queries';
+import { getPaymentLinksBySource } from '@/services/payments/queries';
+import type { EventCalendarSyncRecord } from '@/types/calendar';
 import type { ClientRecord } from '@/types/clients';
 import type { LeadProfileOption } from '@/types/leads';
 import type { PreEventRecord } from '@/types/pre-events';
@@ -40,6 +42,24 @@ export async function getPreEventById(preEventId: string) {
 
   const { data } = await supabase.from('pre_events').select('*').eq('id', preEventId).maybeSingle();
   return (data as PreEventRecord | null) ?? null;
+}
+
+export async function getPaymentLinksByPreEventId(preEventId: string) {
+  return getPaymentLinksBySource('pre_event', preEventId);
+}
+
+export async function getPreEventCalendarSyncByPreEventId(preEventId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data } = await supabase
+    .from('event_calendar_syncs')
+    .select('*')
+    .eq('source_record_type', 'pre_event')
+    .eq('source_record_id', preEventId)
+    .maybeSingle();
+
+  return (data as EventCalendarSyncRecord | null) ?? null;
 }
 
 async function getQuoteRecordById(quoteId: string) {
@@ -94,18 +114,20 @@ export async function getPreEventDetailPageData(preEventId: string) {
     notFound();
   }
 
-  const [client, lead, quote, profiles] = await Promise.all([
+  const [client, lead, quote, profiles, paymentLinks, calendarSync] = await Promise.all([
     getClientById(preEvent.client_id),
     preEvent.lead_id ? getLeadById(preEvent.lead_id) : Promise.resolve(null),
     getQuoteRecordById(preEvent.source_quote_id),
     getProfilesMap([preEvent.created_by, preEvent.updated_by]),
+    getPaymentLinksByPreEventId(preEvent.id),
+    getPreEventCalendarSyncByPreEventId(preEvent.id),
   ]);
 
   if (!client || !quote) {
     notFound();
   }
 
-  return { client, lead, preEvent, profiles, quote };
+  return { client, lead, preEvent, profiles, quote, paymentLinks, calendarSync };
 }
 
 export async function getPreEventsOverviewPageData() {

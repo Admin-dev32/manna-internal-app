@@ -1,16 +1,45 @@
-import { AlertTriangle, Archive, Boxes, PackageCheck, Trash2 } from 'lucide-react';
+import { AlertTriangle, Archive, Boxes, PackageCheck, ShieldAlert, Trash2 } from 'lucide-react';
 
 import { INVENTORY_STATUS_LABELS } from '@/config/inventory';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { applyBarMasterTemplateToEventAction } from '@/services/bar-master-templates/actions';
 import { createEventInventoryRequirementAction, removeEventInventoryRequirementAction, updateEventInventoryRequirementAction } from '@/services/inventory/actions';
-import type { EventInventoryRequirementRecord, InventoryAvailabilitySummary, InventoryItemRecord } from '@/types/inventory';
+import type {
+  BarMasterTemplateApplicationRecord,
+  BarMasterTemplateRecord,
+  EventInventoryPrepStatus,
+  EventInventoryRequirementRecord,
+  InventoryAvailabilitySummary,
+  InventoryItemRecord,
+} from '@/types/inventory';
+import type { LeadProfileOption } from '@/types/leads';
 
 function formatQuantity(value: number | null | undefined) {
   if (value == null) return '—';
   return new Intl.NumberFormat('es-MX', { maximumFractionDigits: 2 }).format(Number(value));
+}
+
+function calculateMissing(requirement: EventInventoryRequirementRecord) {
+  return Math.max(Number(requirement.quantity_required) - Number(requirement.quantity_counted ?? 0), 0);
+}
+
+function prepStatusLabel(status: EventInventoryPrepStatus) {
+  return {
+    pendiente: 'Pendiente',
+    contado: 'Contado',
+    faltante: 'Faltante',
+    listo: 'Listo',
+  }[status];
+}
+
+function prepStatusVariant(status: EventInventoryPrepStatus) {
+  if (status === 'listo') return 'success' as const;
+  if (status === 'faltante') return 'warning' as const;
+  if (status === 'contado') return 'secondary' as const;
+  return 'outline' as const;
 }
 
 function getInventoryBadge(availability: InventoryAvailabilitySummary | undefined, requiredQuantity?: number) {
@@ -34,11 +63,19 @@ export function EventInventorySection({
   inventoryItems,
   requirements,
   availabilityByItem,
+  profiles,
+  canPrepareInventory,
+  barMasterTemplates,
+  barMasterApplications,
 }: {
   eventId: string;
   inventoryItems: InventoryItemRecord[];
   requirements: EventInventoryRequirementRecord[];
   availabilityByItem: Record<string, InventoryAvailabilitySummary>;
+  profiles: Record<string, LeadProfileOption>;
+  canPrepareInventory: boolean;
+  barMasterTemplates: BarMasterTemplateRecord[];
+  barMasterApplications: BarMasterTemplateApplicationRecord[];
 }) {
   const linkedItemIds = new Set(requirements.map((requirement) => requirement.inventory_item_id));
   const availableItemsToLink = inventoryItems.filter((item) => !linkedItemIds.has(item.id));
@@ -46,20 +83,31 @@ export function EventInventorySection({
     const availability = availabilityByItem[requirement.inventory_item_id];
     return availability ? availability.availableStock < requirement.quantity_required : true;
   }).length;
+  const pendingPrepCount = requirements.filter((requirement) => requirement.prep_status === 'pendiente').length;
+  const missingCount = requirements.filter((requirement) => calculateMissing(requirement) > 0).length;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Materiales e insumos</CardTitle>
-        <CardDescription>Base mínima para saber qué requiere el evento y si el stock alcanza.</CardDescription>
+        <CardDescription>
+          Base reusable: plantillas operativas por barra/servicio. Instancia real: requirements de este evento con conteo y preparación.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
           <SummaryStat icon={Archive} label="Ligados" value={requirements.length.toString()} />
           <SummaryStat icon={PackageCheck} label="Disponibles" value={(requirements.length - shortageCount).toString()} />
-          <SummaryStat icon={AlertTriangle} label="Faltantes" value={shortageCount.toString()} />
-          <SummaryStat icon={Boxes} label="Catálogo activo" value={inventoryItems.length.toString()} />
+          <SummaryStat icon={AlertTriangle} label="Faltantes stock" value={shortageCount.toString()} />
+          <SummaryStat icon={ShieldAlert} label="Pendientes prep" value={pendingPrepCount.toString()} />
+          <SummaryStat icon={Boxes} label="Con faltante conteo" value={missingCount.toString()} />
         </div>
+
+        {!canPrepareInventory ? (
+          <div className="rounded-2xl border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
+            Tienes visibilidad de materiales, pero no permiso para registrar conteo/preparación.
+          </div>
+        ) : null}
 
         {requirements.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
@@ -70,6 +118,8 @@ export function EventInventorySection({
             {requirements.map((requirement) => {
               const item = inventoryItems.find((inventoryItem) => inventoryItem.id === requirement.inventory_item_id);
               const availability = availabilityByItem[requirement.inventory_item_id];
+              const missing = calculateMissing(requirement);
+              const checkedBy = requirement.checked_by ? profiles[requirement.checked_by] : null;
 
               return (
                 <div key={requirement.id} className="rounded-3xl border border-border bg-background p-4">
@@ -78,26 +128,37 @@ export function EventInventorySection({
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-foreground">{item?.name ?? 'Material'}</p>
                         {getInventoryBadge(availability, Number(requirement.quantity_required))}
+                        <Badge variant={prepStatusVariant(requirement.prep_status)}>{prepStatusLabel(requirement.prep_status)}</Badge>
+                        <Badge variant="outline">{requirement.source_type === 'template' ? 'Base plantilla' : 'Manual evento'}</Badge>
                         {item?.category ? <Badge variant="outline">{item.category}</Badge> : null}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        Requerido: {formatQuantity(requirement.quantity_required)} {item?.unit ?? 'u'} · Disponible: {formatQuantity(availability?.availableStock)} {item?.unit ?? 'u'}
+                        Requerido: {formatQuantity(requirement.quantity_required)} {item?.unit ?? 'u'} · Contado: {formatQuantity(requirement.quantity_counted)} {item?.unit ?? 'u'} · Faltante: {formatQuantity(missing)} {item?.unit ?? 'u'}
                       </p>
+                      {requirement.checked_at ? (
+                        <p className="text-xs text-muted-foreground">
+                          Último conteo: {new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(requirement.checked_at))}
+                          {checkedBy ? ` por ${checkedBy.full_name ?? 'usuario interno'}` : ''}
+                        </p>
+                      ) : null}
                     </div>
-                    <form action={removeEventInventoryRequirementAction.bind(null, eventId, requirement.id)}>
-                      <Button type="submit" variant="outline">
-                        <Trash2 className="size-4" />
-                        Quitar
-                      </Button>
-                    </form>
+                    {canPrepareInventory ? (
+                      <form action={removeEventInventoryRequirementAction.bind(null, eventId, requirement.id)}>
+                        <Button type="submit" variant="outline">
+                          <Trash2 className="size-4" />
+                          Quitar
+                        </Button>
+                      </form>
+                    ) : null}
                   </div>
 
-                  <form action={updateEventInventoryRequirementAction.bind(null, eventId, requirement.id)} className="grid gap-4 xl:grid-cols-[1.2fr_1fr_1fr_1.4fr_auto]">
+                  <form action={updateEventInventoryRequirementAction.bind(null, eventId, requirement.id)} className="grid gap-4 xl:grid-cols-[1.2fr_1fr_1fr_1fr_1fr_auto]">
                     <div className="space-y-2">
                       <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Material</label>
                       <select
                         name="inventory_item_id"
                         defaultValue={requirement.inventory_item_id}
+                        disabled={!canPrepareInventory}
                         className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       >
                         {inventoryItems.map((inventoryItem) => (
@@ -110,23 +171,48 @@ export function EventInventorySection({
 
                     <div className="space-y-2">
                       <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Cantidad requerida</label>
-                      <Input name="quantity_required" type="number" min="0" step="0.01" defaultValue={Number(requirement.quantity_required)} />
+                      <Input name="quantity_required" type="number" min="0" step="0.01" defaultValue={Number(requirement.quantity_required)} disabled={!canPrepareInventory} />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Cantidad contada</label>
+                      <Input name="quantity_counted" type="number" min="0" step="0.01" defaultValue={requirement.quantity_counted ?? ''} placeholder="Conteo real" disabled={!canPrepareInventory} />
                     </div>
 
                     <div className="space-y-2">
                       <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Cantidad usada</label>
-                      <Input name="quantity_used" type="number" min="0" step="0.01" defaultValue={requirement.quantity_used ?? ''} placeholder="Opcional" />
+                      <Input name="quantity_used" type="number" min="0" step="0.01" defaultValue={requirement.quantity_used ?? ''} placeholder="Opcional" disabled={!canPrepareInventory} />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Nota</label>
-                      <Input name="note" defaultValue={requirement.note ?? ''} placeholder="Ej. llevar caja extra por seguridad" />
+                      <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Estado prep</label>
+                      <select
+                        name="prep_status"
+                        defaultValue={requirement.prep_status}
+                        disabled={!canPrepareInventory}
+                        className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        <option value="pendiente">Pendiente</option>
+                        <option value="contado">Contado</option>
+                        <option value="faltante">Faltante</option>
+                        <option value="listo">Listo</option>
+                      </select>
                     </div>
 
                     <div className="flex items-end">
-                      <Button type="submit" className="w-full">
+                      <Button type="submit" className="w-full" disabled={!canPrepareInventory}>
                         Guardar
                       </Button>
+                    </div>
+
+                    <div className="space-y-2 xl:col-span-3">
+                      <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Nota general</label>
+                      <Input name="note" defaultValue={requirement.note ?? ''} placeholder="Ej. reservar para montaje principal" disabled={!canPrepareInventory} />
+                    </div>
+
+                    <div className="space-y-2 xl:col-span-3">
+                      <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Nota de preparación</label>
+                      <Input name="prep_notes" defaultValue={requirement.prep_notes ?? ''} placeholder="Ej. faltan 2 cajas, proveedor confirma entrega mañana" disabled={!canPrepareInventory} />
                     </div>
                   </form>
                 </div>
@@ -136,15 +222,41 @@ export function EventInventorySection({
         )}
 
         <div className="rounded-3xl border border-border bg-muted/30 p-4">
+          <h3 className="text-sm font-semibold text-foreground">Aplicar lista maestra por barra</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Siembra materiales base al evento y consolida cantidades sin duplicar requirements existentes.</p>
+          {barMasterTemplates.length === 0 ? (
+            <div className="mt-3 rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+              No hay listas maestras activas para aplicar.
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {barMasterTemplates.slice(0, 6).map((template) => (
+                <form key={template.id} action={applyBarMasterTemplateToEventAction.bind(null, eventId, template.id)}>
+                  <Button type="submit" variant="outline" disabled={!canPrepareInventory}>
+                    Aplicar: {template.name}
+                  </Button>
+                </form>
+              ))}
+            </div>
+          )}
+          {barMasterApplications.length > 0 ? (
+            <div className="mt-3 rounded-2xl border border-border bg-background px-4 py-3 text-xs text-muted-foreground">
+              Últimas aplicaciones: {barMasterApplications.slice(0, 3).map((application) => new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(application.applied_at))).join(' · ')}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-3xl border border-border bg-muted/30 p-4">
           <h3 className="text-sm font-semibold text-foreground">Agregar material al evento</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Relaciona insumos existentes con este evento para comparar requerido contra stock disponible.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Crea requirements reales del evento (manuales o provenientes de plantilla) para preparar conteo operativo.</p>
           {availableItemsToLink.length > 0 ? (
-            <form action={createEventInventoryRequirementAction.bind(null, eventId)} className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_1fr_1fr_1.4fr_auto]">
+            <form action={createEventInventoryRequirementAction.bind(null, eventId)} className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_1fr_1fr_1fr_1fr_auto]">
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Material</label>
                 <select
                   name="inventory_item_id"
                   defaultValue={availableItemsToLink[0]?.id ?? ''}
+                  disabled={!canPrepareInventory}
                   className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   {availableItemsToLink.map((item) => (
@@ -157,23 +269,43 @@ export function EventInventorySection({
 
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Cantidad requerida</label>
-                <Input name="quantity_required" type="number" min="0" step="0.01" placeholder="0" />
+                <Input name="quantity_required" type="number" min="0" step="0.01" placeholder="0" disabled={!canPrepareInventory} />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Cantidad contada</label>
+                <Input name="quantity_counted" type="number" min="0" step="0.01" placeholder="Opcional" disabled={!canPrepareInventory} />
               </div>
 
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Cantidad usada</label>
-                <Input name="quantity_used" type="number" min="0" step="0.01" placeholder="Opcional" />
+                <Input name="quantity_used" type="number" min="0" step="0.01" placeholder="Opcional" disabled={!canPrepareInventory} />
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Nota</label>
-                <Input name="note" placeholder="Ej. reservar para montaje principal" />
+                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Estado prep</label>
+                <select name="prep_status" defaultValue="pendiente" disabled={!canPrepareInventory} className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm">
+                  <option value="pendiente">Pendiente</option>
+                  <option value="contado">Contado</option>
+                  <option value="faltante">Faltante</option>
+                  <option value="listo">Listo</option>
+                </select>
               </div>
 
               <div className="flex items-end">
-                <Button type="submit" className="w-full">
+                <Button type="submit" className="w-full" disabled={!canPrepareInventory}>
                   Agregar
                 </Button>
+              </div>
+
+              <div className="space-y-2 xl:col-span-3">
+                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Nota general</label>
+                <Input name="note" placeholder="Ej. reservar para montaje principal" disabled={!canPrepareInventory} />
+              </div>
+
+              <div className="space-y-2 xl:col-span-3">
+                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Nota de preparación</label>
+                <Input name="prep_notes" placeholder="Ej. conteo parcial en bodega" disabled={!canPrepareInventory} />
               </div>
             </form>
           ) : (

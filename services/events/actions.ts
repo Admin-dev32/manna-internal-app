@@ -13,9 +13,19 @@ import {
   EVENT_TASK_STATUS_LABELS,
 } from '@/config/events';
 import { requireActiveSession } from '@/lib/auth/guards';
+import { hasPermission } from '@/lib/auth/permissions';
 import { getPreEventReadyState } from '@/lib/events/readiness';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getEventById, getEventByPreEventId } from '@/services/events/queries';
+import { buildEventCalendarPayload, validateEventCalendarRequirements } from '@/services/events/calendar';
+import type { EventCalendarSyncFormState } from '@/services/events/calendar-form-state';
+import {
+  createGoogleCalendarFingerprint,
+  findGoogleCalendarEventByFingerprint,
+  findGoogleCalendarEventByHeuristic,
+  upsertGoogleCalendarEvent,
+} from '@/services/google-calendar/client';
+import { getClientById } from '@/services/clients/queries';
 import { getPreEventById } from '@/services/pre-events/queries';
 import {
   EVENT_ASSIGNMENT_ROLES,
@@ -196,6 +206,174 @@ export async function createEventFromPreEventAction(preEventId: string) {
   await revalidateEventPaths(event.id);
 
   redirect(`/eventos/${event.id}` as Route);
+}
+
+export async function syncEventToGoogleCalendarAction(
+  eventId: string,
+  _previousState: EventCalendarSyncFormState,
+  _formData: FormData,
+): Promise<EventCalendarSyncFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  }
+
+  const event = await getEventById(eventId);
+  if (!event) {
+    return { status: 'error', message: 'No encontramos el evento solicitado.' };
+  }
+
+  const [client, existingSync] = await Promise.all([
+    getClientById(event.client_id),
+    supabase
+      .from('event_calendar_syncs')
+      .select('*')
+      .eq('source_record_type', 'event')
+      .eq('source_record_id', event.id)
+      .neq('sync_status', 'stale')
+      .maybeSingle(),
+  ]);
+
+  if (!client) {
+    return { status: 'error', message: 'No encontramos el cliente asociado al evento.' };
+  }
+
+  const missing = validateEventCalendarRequirements(event, client);
+  if (missing.length > 0) {
+    return {
+      status: 'error',
+      message: `No se puede sincronizar en Google Calendar. Falta: ${missing.join(', ')}.`,
+    };
+  }
+
+  try {
+    const payload = buildEventCalendarPayload(event, client);
+    const eventFingerprint = createGoogleCalendarFingerprint('event', event.id);
+    const preEventFingerprint = createGoogleCalendarFingerprint('pre_event', event.source_pre_event_id);
+    let externalEventId = (existingSync.data as { external_event_id?: string | null } | null)?.external_event_id ?? null;
+    let externalEventUrl = (existingSync.data as { external_event_url?: string | null } | null)?.external_event_url ?? null;
+    let syncOrigin: 'direct' | 'reconciled' | 'inherited' = 'direct';
+    let ownershipNote: string | null = null;
+
+    if (!externalEventId) {
+      const { data: preEventSync } = await supabase
+        .from('event_calendar_syncs')
+        .select('*')
+        .eq('source_record_type', 'pre_event')
+        .eq('source_record_id', event.source_pre_event_id)
+        .neq('sync_status', 'stale')
+        .maybeSingle();
+
+      const preEventSyncData = preEventSync as { id: string; external_event_id?: string | null; external_event_url?: string | null } | null;
+      if (preEventSyncData?.external_event_id) {
+        externalEventId = preEventSyncData.external_event_id;
+        externalEventUrl = preEventSyncData.external_event_url ?? null;
+        syncOrigin = 'inherited';
+        ownershipNote = 'Vínculo heredado desde Reserva para evitar duplicados.';
+
+        await supabase
+          .from('event_calendar_syncs')
+          .update({
+            sync_status: 'stale',
+            ownership_note: `Ownership transferido a Event #${event.id.slice(0, 8)}.`,
+            superseded_by_source_record_type: 'event',
+            superseded_by_source_record_id: event.id,
+            synced_by: session.user.id,
+            synced_at: new Date().toISOString(),
+          })
+          .eq('id', preEventSyncData.id);
+      }
+    }
+
+    if (!externalEventId) {
+      const fingerprintMatch = await findGoogleCalendarEventByFingerprint(eventFingerprint);
+      if (fingerprintMatch?.externalEventId) {
+        externalEventId = fingerprintMatch.externalEventId;
+        externalEventUrl = fingerprintMatch.externalEventUrl;
+        syncOrigin = 'reconciled';
+        ownershipNote = 'Reconciliado por huella fuerte event.';
+      }
+    }
+
+    if (!externalEventId) {
+      const preEventFingerprintMatch = await findGoogleCalendarEventByFingerprint(preEventFingerprint);
+      if (preEventFingerprintMatch?.externalEventId) {
+        externalEventId = preEventFingerprintMatch.externalEventId;
+        externalEventUrl = preEventFingerprintMatch.externalEventUrl;
+        syncOrigin = 'inherited';
+        ownershipNote = 'Reconciliado reutilizando huella fuerte de Reserva origen.';
+      }
+    }
+
+    if (!externalEventId) {
+      const heuristicMatch = await findGoogleCalendarEventByHeuristic(payload);
+      if (heuristicMatch?.externalEventId) {
+        externalEventId = heuristicMatch.externalEventId;
+        externalEventUrl = heuristicMatch.externalEventUrl;
+        syncOrigin = 'reconciled';
+        ownershipNote = 'Reconciliado por heurística conservadora.';
+      }
+    }
+
+    const syncResult = await upsertGoogleCalendarEvent(payload, eventFingerprint, externalEventId);
+
+    const { error } = await supabase.from('event_calendar_syncs').upsert(
+      {
+        source_record_type: 'event',
+        source_record_id: event.id,
+        provider: 'google_calendar',
+        external_event_id: syncResult.externalEventId,
+        external_event_url: syncResult.externalEventUrl ?? externalEventUrl,
+        sync_status: syncOrigin === 'direct' ? 'synced' : 'reconciled',
+        sync_origin: syncOrigin,
+        ownership_note: ownershipNote,
+        superseded_by_source_record_type: null,
+        superseded_by_source_record_id: null,
+        last_error: null,
+        synced_by: session.user.id,
+        synced_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'source_record_type,source_record_id' },
+    );
+
+    if (error) {
+      return { status: 'error', message: 'Se sincronizó en Google Calendar, pero no pudimos guardar la trazabilidad interna.' };
+    }
+
+    await revalidateEventPaths(event.id);
+    return {
+      status: 'success',
+      message:
+        syncOrigin === 'inherited'
+          ? 'Evento actualizado en Google Calendar reutilizando ownership desde Reserva.'
+          : syncOrigin === 'reconciled'
+            ? 'Evento reconciliado y actualizado correctamente en Google Calendar.'
+            : existingSync.data?.external_event_id
+              ? 'Evento actualizado correctamente en Google Calendar.'
+              : 'Evento sincronizado correctamente en Google Calendar.',
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'No fue posible sincronizar el evento en Google Calendar.';
+    await supabase.from('event_calendar_syncs').upsert({
+      source_record_type: 'event',
+      source_record_id: event.id,
+      provider: 'google_calendar',
+      external_event_id: (existingSync.data as { external_event_id?: string | null } | null)?.external_event_id ?? null,
+      external_event_url: (existingSync.data as { external_event_url?: string | null } | null)?.external_event_url ?? null,
+      sync_status: 'error',
+      sync_origin: (existingSync.data as { sync_origin?: 'direct' | 'reconciled' | 'inherited' } | null)?.sync_origin ?? 'direct',
+      ownership_note: (existingSync.data as { ownership_note?: string | null } | null)?.ownership_note ?? null,
+      last_error: errorMessage,
+      synced_by: session.user.id,
+      synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'source_record_type,source_record_id' });
+
+    await revalidateEventPaths(event.id);
+    return { status: 'error', message: `Error de sincronización: ${errorMessage}` };
+  }
 }
 
 export async function updateEventStatusAction(eventId: string, nextStatus: EventStatus) {
@@ -489,6 +667,10 @@ export async function createEventTaskAction(eventId: string, formData: FormData)
     return;
   }
 
+  if (!hasPermission(session.user, 'tasks.manage') || !hasPermission(session.user, 'tasks.assign')) {
+    return;
+  }
+
   const event = await getEventById(eventId);
   if (!event) {
     return;
@@ -553,6 +735,10 @@ export async function updateEventTaskAction(eventId: string, taskId: string, for
     return;
   }
 
+  if (!hasPermission(session.user, 'tasks.manage')) {
+    return;
+  }
+
   const event = await getEventById(eventId);
   if (!event) {
     return;
@@ -589,6 +775,14 @@ export async function updateEventTaskAction(eventId: string, taskId: string, for
     return;
   }
 
+  if (assignedProfileId !== existingTask.assigned_profile_id && !hasPermission(session.user, 'tasks.assign')) {
+    return;
+  }
+
+  if (status !== existingTask.status && !hasPermission(session.user, 'tasks.update_status')) {
+    return;
+  }
+
   await supabase
     .from('event_tasks')
     .update({
@@ -621,6 +815,10 @@ export async function updateEventTaskStatusAction(eventId: string, taskId: strin
   const supabase = await createSupabaseServerClient();
 
   if (!supabase || !session.user) {
+    return;
+  }
+
+  if (!hasPermission(session.user, 'tasks.update_status')) {
     return;
   }
 

@@ -8,7 +8,7 @@ import { getPreEventDetailPageData } from '@/services/pre-events/queries';
 
 export default async function PreEventDetailPage({ params }: { params: Promise<{ preEventId: string }> }) {
   const { preEventId } = await params;
-  const { client, lead, preEvent, profiles, quote } = await getPreEventDetailPageData(preEventId);
+  const { client, lead, preEvent, profiles, quote, paymentLinks, calendarSync } = await getPreEventDetailPageData(preEventId);
   const [session, linkedEvent, financeSummary, applicableOperationalTemplates] = await Promise.all([
     getSessionContext(),
     getEventByPreEventId(preEvent.id),
@@ -24,6 +24,7 @@ export default async function PreEventDetailPage({ params }: { params: Promise<{
       client={client}
       lead={lead}
       quote={quote}
+      paymentLinks={paymentLinks}
       profiles={profiles}
       linkedEvent={linkedEvent}
       applicableOperationalTemplates={applicableOperationalTemplates}
@@ -31,6 +32,7 @@ export default async function PreEventDetailPage({ params }: { params: Promise<{
       operationalTemplateProfiles={templatePanelData?.profiles ?? {}}
       financeSummary={financeSummary}
       canViewFinance={canViewFinance}
+      calendarSync={calendarSync}
     />
   );
 }

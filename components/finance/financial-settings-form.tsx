@@ -112,7 +112,7 @@ export function FinancialSettingsForm({ settings, expenses, canEdit }: Financial
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-border bg-background/70 px-5 py-4">
         <div className="flex items-start gap-3 text-sm text-muted-foreground">
           <ShieldCheck className="mt-0.5 size-4 text-primary" />
-          <p>{canEdit ? 'Solo owner puede editar estos defaults globales.' : 'Tienes acceso de lectura. Solo owner puede editar los defaults globales.'}</p>
+          <p>{canEdit ? 'Tienes permiso para administrar defaults globales financieros.' : 'Tienes acceso de lectura. Se requiere permiso financiero de administración de defaults para editar.'}</p>
         </div>
         <Button type="submit" disabled={!canEdit}>
           Guardar defaults globales
