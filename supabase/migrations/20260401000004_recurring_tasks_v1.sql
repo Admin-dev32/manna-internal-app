@@ -187,7 +187,9 @@ with check (
   and public.current_user_has_permission('tasks.manage')
 );
 
-create or replace view public.tasks_catalog as
+drop view if exists public.tasks_catalog;
+
+create view public.tasks_catalog as
 select
   t.id,
   t.event_id,

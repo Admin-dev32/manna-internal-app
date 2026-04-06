@@ -26,3 +26,13 @@ export async function getCurrentUserAccessContext(supabase: SupabaseClient) {
   const [context] = data;
   return context as CurrentUserAccessContext;
 }
+
+export async function reconcileCurrentUserProfile(supabase: SupabaseClient) {
+  const { data, error } = await supabase.rpc('reconcile_current_user_profile');
+
+  if (error) {
+    return null;
+  }
+
+  return (data ?? null) as ProfileRecord | null;
+}

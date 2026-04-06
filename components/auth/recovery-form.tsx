@@ -26,10 +26,14 @@ export function RecoveryForm() {
             name="email"
             type="email"
             autoComplete="email"
+            required
+            inputMode="email"
+            maxLength={120}
             placeholder="nombre@manna.com"
             className="pl-10"
           />
         </div>
+        <p className="text-xs text-muted-foreground">Usa el mismo correo con el que accedes a la app interna.</p>
       </div>
       <AuthSubmitButton idleLabel="Enviar enlace de recuperación" loadingLabel="Enviando enlace..." />
     </form>
