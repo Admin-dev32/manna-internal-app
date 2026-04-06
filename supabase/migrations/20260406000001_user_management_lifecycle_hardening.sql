@@ -1,4 +1,5 @@
-create or replace function public.admin_list_users(search_term text default null)
+drop function if exists public.admin_list_users(text);
+create function public.admin_list_users(search_term text default null)
 returns table (
   id uuid,
   full_name text,
@@ -52,7 +53,8 @@ as $$
   order by coalesce(uac.is_site_owner, false) desc, lower(coalesce(p.full_name, au.email, p.id::text)) asc;
 $$;
 
-create or replace function public.admin_get_user_detail(target_user_id uuid)
+drop function if exists public.admin_get_user_detail(uuid);
+create function public.admin_get_user_detail(target_user_id uuid)
 returns table (
   id uuid,
   full_name text,
@@ -101,3 +103,6 @@ as $$
     and p.id = target_user_id
   group by p.id, p.full_name, au.email, p.role, p.is_active, uac.is_site_owner, uac.admin_notes, au.invited_at, au.email_confirmed_at, au.last_sign_in_at, p.created_at, p.updated_at, uac.updated_at;
 $$;
+
+grant execute on function public.admin_list_users(text) to authenticated;
+grant execute on function public.admin_get_user_detail(uuid) to authenticated;
