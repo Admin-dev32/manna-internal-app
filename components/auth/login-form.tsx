@@ -32,7 +32,17 @@ export function LoginForm({ next, initialMessage }: LoginFormProps) {
         </label>
         <div className="relative">
           <Mail className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input id="email" name="email" type="email" autoComplete="email" placeholder="nombre@manna.com" className="pl-10" />
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            inputMode="email"
+            maxLength={120}
+            placeholder="nombre@manna.com"
+            className="pl-10"
+          />
         </div>
       </div>
       <div className="space-y-2">
@@ -46,6 +56,9 @@ export function LoginForm({ next, initialMessage }: LoginFormProps) {
             name="password"
             type="password"
             autoComplete="current-password"
+            required
+            minLength={8}
+            maxLength={128}
             placeholder="••••••••"
             className="pl-10"
           />
@@ -58,6 +71,9 @@ export function LoginForm({ next, initialMessage }: LoginFormProps) {
         </Link>
         <span className="text-muted-foreground">Acceso solo para personal autorizado</span>
       </div>
+      <p className="text-xs text-muted-foreground">
+        Si olvidaste tu contraseña, usa “Olvidé mi acceso” para recibir un enlace seguro.
+      </p>
     </form>
   );
 }

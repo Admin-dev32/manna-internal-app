@@ -30,7 +30,7 @@ export default function RecoverAccessPage() {
           <LifeBuoy className="size-4 text-primary" />
           Soporte interno
         </div>
-        Si el problema persiste, valida que tu usuario esté activo y que el correo exista dentro del equipo autorizado.
+        Si no ves el mensaje, revisa spam/promociones y confirma que tu usuario esté activo con correo autorizado del equipo interno.
       </div>
 
       <Link href="/login" className="text-sm font-medium text-primary hover:underline">
