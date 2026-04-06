@@ -12,7 +12,7 @@ import { PERMISSION_DESCRIPTIONS, PERMISSION_LABELS, USER_MANAGEMENT_OVERRIDE_OP
 import { ROLE_LABELS } from '@/config/roles';
 import { getRolePermissions } from '@/lib/auth/permissions';
 import { initialUserManagementActionState } from '@/services/user-management/form-state';
-import { updateManagedUserAction } from '@/services/user-management/actions';
+import { deletePendingManagedUserAction, resendManagedUserInviteAction, updateManagedUserAction } from '@/services/user-management/actions';
 import { PERMISSION_KEYS, type PermissionKey } from '@/types/auth';
 import type { ManagedUserDetail } from '@/types/user-management';
 
@@ -22,6 +22,8 @@ interface UserAccessFormProps {
 
 export function UserAccessForm({ user }: UserAccessFormProps) {
   const [state, formAction] = useActionState(updateManagedUserAction.bind(null, user.id), initialUserManagementActionState);
+  const [resendState, resendAction] = useActionState(resendManagedUserInviteAction.bind(null, user.id), initialUserManagementActionState);
+  const [deleteState, deleteAction] = useActionState(deletePendingManagedUserAction.bind(null, user.id), initialUserManagementActionState);
   const [selectedRole, setSelectedRole] = useState(user.role);
   const [grantedPermissions, setGrantedPermissions] = useState<PermissionKey[]>(user.granted_permissions);
   const [revokedPermissions, setRevokedPermissions] = useState<PermissionKey[]>(user.revoked_permissions);
@@ -80,12 +82,27 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold sm:text-3xl">{user.full_name ?? 'Usuario interno'}</h1>
           <p className="text-sm text-slate-300 sm:text-base">{user.email}</p>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={user.is_active ? 'success' : 'warning'}>{user.is_active ? 'Activo' : 'Inactivo'}</Badge>
+            {user.invitation_pending ? <Badge variant="secondary">Invitación pendiente</Badge> : null}
+            {user.last_sign_in_at ? <Badge variant="outline">Ya ingresó a la app</Badge> : null}
+          </div>
         </div>
       </section>
 
       {state.status !== 'idle' ? (
         <div className={`rounded-3xl border px-5 py-4 text-sm ${state.status === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
           {state.message}
+        </div>
+      ) : null}
+      {resendState.status !== 'idle' ? (
+        <div className={`rounded-3xl border px-5 py-4 text-sm ${resendState.status === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+          {resendState.message}
+        </div>
+      ) : null}
+      {deleteState.status !== 'idle' ? (
+        <div className={`rounded-3xl border px-5 py-4 text-sm ${deleteState.status === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+          {deleteState.message}
         </div>
       ) : null}
 
@@ -186,11 +203,23 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
             </CardHeader>
             <CardContent className="space-y-4">
               <Input defaultValue={user.email} disabled aria-label="Email del usuario" />
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary" htmlFor="full_name">
+                  Nombre completo
+                </label>
+                <Input id="full_name" name="full_name" defaultValue={user.full_name ?? ''} maxLength={120} placeholder="Nombre del usuario" />
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant={user.is_active ? 'success' : 'warning'}>{user.is_active ? 'Activo' : 'Inactivo'}</Badge>
                 <Badge variant={user.role === 'owner' ? 'default' : 'secondary'}>{ROLE_LABELS[user.role]}</Badge>
                 {user.is_site_owner ? <Badge>Site owner</Badge> : null}
+                {user.invitation_pending ? <Badge variant="secondary">Pendiente de primer acceso</Badge> : null}
               </div>
+              <p className="text-xs text-muted-foreground">
+                {user.last_sign_in_at
+                  ? `Último acceso: ${new Date(user.last_sign_in_at).toLocaleString('es-MX')}`
+                  : 'Sin primer acceso registrado todavía.'}
+              </p>
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary" htmlFor="admin_notes">
                   Notas administrativas
@@ -235,6 +264,28 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
           </div>
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Ciclo de vida del usuario</CardTitle>
+          <CardDescription>Acciones rápidas para invitaciones pendientes y limpieza segura de altas incompletas.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-3">
+          <form action={resendAction}>
+            <Button type="submit" variant="outline" disabled={!user.can_resend_invitation}>
+              Reenviar invitación
+            </Button>
+          </form>
+          <form action={deleteAction}>
+            <Button type="submit" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800" disabled={!user.can_delete_user}>
+              Eliminar usuario pendiente
+            </Button>
+          </form>
+          {!user.can_resend_invitation ? (
+            <p className="w-full text-xs text-muted-foreground">Solo disponible para usuarios invitados pendientes sin primer acceso.</p>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

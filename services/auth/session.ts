@@ -3,7 +3,7 @@ import { cache } from 'react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { hasSupabaseCredentials } from '@/lib/supabase/env';
 import { normalizeRole } from '@/lib/auth/roles';
-import { getCurrentUserAccessContext, getProfileRecordByUserId } from '@/services/auth/profile';
+import { getCurrentUserAccessContext, getProfileRecordByUserId, reconcileCurrentUserProfile } from '@/services/auth/profile';
 import { PERMISSION_KEYS } from '@/types/auth';
 import type { AppUser, SessionContext } from '@/types/auth';
 
@@ -48,10 +48,21 @@ export const getSessionContext = cache(async (): Promise<SessionContext> => {
     };
   }
 
-  const [profile, accessContext] = await Promise.all([getProfileRecordByUserId(supabase, user.id), getCurrentUserAccessContext(supabase)]);
+  let [profile, accessContext] = await Promise.all([getProfileRecordByUserId(supabase, user.id), getCurrentUserAccessContext(supabase)]);
+
+  if (!profile) {
+    const reconciledProfile = await reconcileCurrentUserProfile(supabase);
+    if (reconciledProfile) {
+      profile = reconciledProfile;
+      accessContext = (await getCurrentUserAccessContext(supabase)) ?? accessContext;
+    }
+  }
+
   const roleFromAuth = user.app_metadata?.role ?? user.user_metadata?.role;
   const fullName = user.user_metadata?.full_name ?? user.user_metadata?.nombre;
   const normalizedRole = normalizeRole(accessContext?.role ?? profile?.role ?? roleFromAuth);
+  const isActiveProfile = profile?.is_active === true;
+  const isActiveContext = accessContext?.is_active !== false;
 
   return {
     user: {
@@ -59,7 +70,7 @@ export const getSessionContext = cache(async (): Promise<SessionContext> => {
       nombre: profile?.full_name ?? fullName ?? user.email?.split('@')[0] ?? 'Empleado',
       email: user.email ?? 'sin-correo@manna.local',
       rol: normalizedRole,
-      estado: accessContext?.is_active === false || profile?.is_active === false ? 'inactivo' : 'activo',
+      estado: isActiveProfile && isActiveContext ? 'activo' : 'inactivo',
       permissions: accessContext?.permissions ?? [],
       isSiteOwner: accessContext?.is_site_owner ?? normalizedRole === 'owner',
     },
