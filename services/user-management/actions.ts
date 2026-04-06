@@ -37,6 +37,24 @@ async function findAuthUserByEmail(email: string) {
   return { user: match, error: null } as const;
 }
 
+async function findAuthUserById(userId: string) {
+  const adminClient = createSupabaseAdminClient();
+  if (!adminClient) {
+    return { user: null, error: 'No se pudo conectar con Supabase Admin para buscar usuarios.' } as const;
+  }
+
+  const { data, error } = await adminClient.auth.admin.getUserById(userId);
+  if (error) {
+    return { user: null, error: error.message || 'No se pudo leer el usuario en auth.' } as const;
+  }
+
+  return { user: data.user, error: null } as const;
+}
+
+function isPendingInviteUser(user: { invited_at?: string | null; email_confirmed_at?: string | null; last_sign_in_at?: string | null }) {
+  return Boolean(user.invited_at) && !user.email_confirmed_at && !user.last_sign_in_at;
+}
+
 export async function createManagedUserAction(
   _previousState: UserManagementActionState,
   formData: FormData,
@@ -211,6 +229,7 @@ export async function updateManagedUserAction(
 
   const role = String(formData.get('role') ?? 'empleado');
   const isActive = formData.get('is_active') === 'on';
+  const fullName = String(formData.get('full_name') ?? '').trim();
   const adminNotes = String(formData.get('admin_notes') ?? '');
   const grantedPermissions = getCheckedValues(formData, 'granted_permissions');
   const revokedPermissions = getCheckedValues(formData, 'revoked_permissions');
@@ -253,6 +272,50 @@ export async function updateManagedUserAction(
     };
   }
 
+  const adminClient = createSupabaseAdminClient();
+  if (!adminClient) {
+    return {
+      status: 'error',
+      message: 'Se guardó el acceso, pero falta SUPABASE_SERVICE_ROLE_KEY para sincronizar nombre en auth.',
+    };
+  }
+
+  const normalizedName = fullName || null;
+
+  const { error: profileNameError } = await adminClient
+    .from('profiles')
+    .update({
+      full_name: normalizedName,
+    })
+    .eq('id', userId);
+
+  if (profileNameError) {
+    return {
+      status: 'error',
+      message: profileNameError.message || 'Se actualizó el acceso, pero no se pudo guardar el nombre.',
+    };
+  }
+
+  const { user: authUser, error: authUserError } = await findAuthUserById(userId);
+  if (authUserError) {
+    return {
+      status: 'error',
+      message: `Se guardó el acceso, pero falló la lectura del usuario en auth: ${authUserError}`,
+    };
+  }
+
+  const metadata = { ...(authUser?.user_metadata ?? {}), full_name: normalizedName ?? undefined };
+  const { error: metadataError } = await adminClient.auth.admin.updateUserById(userId, {
+    user_metadata: metadata,
+  });
+
+  if (metadataError) {
+    return {
+      status: 'error',
+      message: metadataError.message || 'Se actualizó el acceso, pero no se pudo sincronizar nombre en auth.',
+    };
+  }
+
   revalidatePath('/configuracion');
   revalidatePath('/configuracion/usuarios');
   revalidatePath(`/configuracion/usuarios/${userId}`);
@@ -261,5 +324,142 @@ export async function updateManagedUserAction(
   return {
     status: 'success',
     message: 'Usuario actualizado correctamente.',
+  };
+}
+
+export async function resendManagedUserInviteAction(
+  userId: string,
+  _previousState: UserManagementActionState,
+  _formData: FormData,
+): Promise<UserManagementActionState> {
+  await requirePermission('admin.users.manage');
+
+  const adminClient = createSupabaseAdminClient();
+  if (!adminClient) {
+    return {
+      status: 'error',
+      message: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY para reenviar invitaciones.',
+    };
+  }
+
+  const { user, error } = await findAuthUserById(userId);
+  if (error || !user) {
+    return {
+      status: 'error',
+      message: error || 'No se encontró el usuario en auth.',
+    };
+  }
+
+  if (!user.email) {
+    return {
+      status: 'error',
+      message: 'El usuario no tiene email válido en auth para reenviar invitación.',
+    };
+  }
+
+  if (!isPendingInviteUser(user)) {
+    return {
+      status: 'error',
+      message: 'Solo puedes reenviar invitación cuando el usuario sigue pendiente de primer acceso.',
+    };
+  }
+
+  const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(user.email, {
+    data: {
+      full_name: user.user_metadata?.full_name ?? user.email,
+      role: user.app_metadata?.role ?? 'empleado',
+    },
+    redirectTo: `${supabaseEnv.appUrl}/auth/callback?next=/actualizar-clave&flow=invite`,
+  });
+
+  if (inviteError) {
+    return {
+      status: 'error',
+      message: inviteError.message || 'No se pudo reenviar la invitación.',
+    };
+  }
+
+  revalidatePath('/configuracion');
+  revalidatePath('/configuracion/usuarios');
+  revalidatePath(`/configuracion/usuarios/${userId}`);
+
+  return {
+    status: 'success',
+    message: 'Invitación reenviada correctamente.',
+  };
+}
+
+export async function deletePendingManagedUserAction(
+  userId: string,
+  _previousState: UserManagementActionState,
+  _formData: FormData,
+): Promise<UserManagementActionState> {
+  await requirePermission('admin.users.manage');
+
+  const adminClient = createSupabaseAdminClient();
+  if (!adminClient) {
+    return {
+      status: 'error',
+      message: 'Falta configurar SUPABASE_SERVICE_ROLE_KEY para eliminar usuarios pendientes.',
+    };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return {
+      status: 'error',
+      message: 'No se pudo validar la sesión administrativa para eliminar el usuario.',
+    };
+  }
+
+  const { data: detail, error: detailError } = await supabase.rpc('admin_get_user_detail', {
+    target_user_id: userId,
+  });
+
+  if (detailError) {
+    return {
+      status: 'error',
+      message: detailError.message || 'No se pudo validar el estado del usuario.',
+    };
+  }
+
+  const userDetail = Array.isArray(detail) ? (detail[0] as { is_site_owner?: boolean; can_delete_user?: boolean } | undefined) : undefined;
+  if (userDetail?.is_site_owner) {
+    return {
+      status: 'error',
+      message: 'El owner principal no puede eliminarse.',
+    };
+  }
+
+  const { user, error } = await findAuthUserById(userId);
+  if (error || !user) {
+    return {
+      status: 'error',
+      message: error || 'No se encontró el usuario en auth.',
+    };
+  }
+
+  if (!isPendingInviteUser(user) || userDetail?.can_delete_user !== true) {
+    return {
+      status: 'error',
+      message: 'Solo se permite eliminar usuarios invitados pendientes sin primer acceso.',
+    };
+  }
+
+  const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId);
+  if (deleteError) {
+    return {
+      status: 'error',
+      message: deleteError.message || 'No se pudo eliminar el usuario pendiente.',
+    };
+  }
+
+  revalidatePath('/configuracion');
+  revalidatePath('/configuracion/usuarios');
+  revalidatePath(`/configuracion/usuarios/${userId}`);
+
+  return {
+    status: 'success',
+    message: 'Usuario pendiente eliminado correctamente.',
   };
 }
