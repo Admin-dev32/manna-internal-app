@@ -3,7 +3,18 @@ import { KeyRound } from 'lucide-react';
 import { UpdatePasswordForm } from '@/components/auth/update-password-form';
 import { AlertBanner } from '@/components/shared/alert-banner';
 
-export default function UpdatePasswordPage() {
+interface UpdatePasswordPageProps {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function UpdatePasswordPage({ searchParams }: UpdatePasswordPageProps) {
+  const params = (await searchParams) ?? {};
+  const callbackStatus = typeof params.status === 'string' ? params.status : null;
+  const callbackMessage = typeof params.message === 'string' ? params.message : null;
+  const callbackFlow = params.flow === 'invite' || params.flow === 'recovery' ? params.flow : null;
+
+  const callbackBannerVariant = callbackStatus === 'error' || callbackStatus === 'warning' ? 'warning' : 'info';
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -12,16 +23,22 @@ export default function UpdatePasswordPage() {
         </div>
         <h2 className="text-2xl font-semibold">Actualizar contraseña</h2>
         <p className="text-sm text-muted-foreground">
-          Define una nueva contraseña para tu cuenta usando el enlace seguro enviado a tu correo.
+          {callbackFlow === 'invite'
+            ? 'Estás configurando tu acceso por primera vez. Define una contraseña segura para entrar a la app interna.'
+            : 'Define una nueva contraseña para tu cuenta usando el enlace seguro enviado a tu correo.'}
         </p>
       </div>
 
       <AlertBanner
         title="Sesión temporal de recuperación"
-        description="Esta pantalla funciona después de abrir el enlace enviado por Supabase Auth y mantiene la experiencia dentro de la misma shell pública."
+        description={
+          callbackMessage ??
+          'Esta pantalla funciona después de abrir el enlace enviado por Supabase Auth y mantiene la experiencia dentro de la misma shell pública.'
+        }
+        variant={callbackBannerVariant}
       />
 
-      <UpdatePasswordForm />
+      <UpdatePasswordForm flow={callbackFlow} />
     </div>
   );
 }
