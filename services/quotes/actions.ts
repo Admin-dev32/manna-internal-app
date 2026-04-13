@@ -156,7 +156,7 @@ async function ensureQuotePaymentLinkForEmail({
     return { link: existingLink, status: 'existing' as const };
   }
 
-  const { source, system, timezone } = getInternalPaymentsConfig();
+  const { source, system, timezone } = await getInternalPaymentsConfig();
   const payload = buildPaymentLinkPayload({
     mode: paymentMode,
     source,
@@ -445,7 +445,7 @@ export async function createQuotePaymentLinkAction(
   }
 
   try {
-    const { source, system, timezone } = getInternalPaymentsConfig();
+    const { source, system, timezone } = await getInternalPaymentsConfig();
     const payload = buildPaymentLinkPayload({
       mode: paymentMode,
       source,
@@ -552,7 +552,7 @@ export async function sendQuoteEmailAction(
     }
   }
 
-  const draft = buildQuoteEmailDraft({
+  const draft = await buildQuoteEmailDraft({
     quote,
     lead,
     client,

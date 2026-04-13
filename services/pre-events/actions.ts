@@ -228,7 +228,7 @@ export async function createPreEventPaymentLinkAction(
   }
 
   try {
-    const { source, system, timezone } = getInternalPaymentsConfig();
+    const { source, system, timezone } = await getInternalPaymentsConfig();
     const payload = buildPaymentLinkPayload({
       mode: paymentMode,
       source,
