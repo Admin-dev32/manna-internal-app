@@ -6,7 +6,7 @@ import { redirect } from 'next/navigation';
 
 import { requireActiveSession } from '@/lib/auth/guards';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { createCentralPaymentLink, getInternalPaymentsConfig } from '@/services/payments/internal-api';
+import { createCentralPaymentLink, getInternalPaymentsConfig, getInternalPaymentsErrorMessage } from '@/services/payments/internal-api';
 import { getClientById } from '@/services/clients/queries';
 import { buildPreEventCalendarPayload, validatePreEventCalendarRequirements } from '@/services/pre-events/calendar';
 import type { PreEventCalendarSyncFormState } from '@/services/pre-events/calendar-form-state';
@@ -272,7 +272,7 @@ export async function createPreEventPaymentLinkAction(
 
     return { status: 'success', message: 'Payment link creado y guardado correctamente.' };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'No fue posible crear el payment link con la API central.';
+    const message = getInternalPaymentsErrorMessage(error);
     return { status: 'error', message };
   }
 }
