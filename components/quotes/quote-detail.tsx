@@ -45,7 +45,7 @@ function formatDepositLabel(quote: QuoteRecord) {
   return quote.deposit_type === 'percentage' ? `${quote.deposit_value}%` : formatCurrency(quote.deposit_value);
 }
 
-export function QuoteDetail({
+export async function QuoteDetail({
   quote,
   lead,
   leadRecord,
@@ -91,7 +91,7 @@ export function QuoteDetail({
   const paymentMissingFields = validatePaymentLinkPayloadSource(paymentPayloadSource);
   const commercialPaymentMode = getQuoteCommercialPaymentMode(quote);
   const activePaymentLink = paymentLinks.find((item) => item.payment_mode === commercialPaymentMode.mode) ?? null;
-  const emailDraft = buildQuoteEmailDraft({
+  const emailDraft = await buildQuoteEmailDraft({
     quote,
     lead: leadRecord,
     client,

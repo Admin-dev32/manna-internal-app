@@ -1,3 +1,5 @@
+import { getBusinessSettings } from '@/services/business-settings/queries';
+
 interface EmailProviderConfig {
   provider: 'resend';
   apiKey: string;
@@ -5,12 +7,11 @@ interface EmailProviderConfig {
   replyTo: string | null;
 }
 
-export function getEmailProviderConfig(): EmailProviderConfig {
+export async function getEmailProviderConfig(): Promise<EmailProviderConfig> {
   const provider = (process.env.EMAIL_PROVIDER ?? 'resend').trim().toLowerCase();
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.EMAIL_FROM_ADDRESS?.trim();
-  const fromName = process.env.EMAIL_FROM_NAME?.trim();
-  const replyTo = process.env.EMAIL_REPLY_TO?.trim() ?? null;
+  const settings = await getBusinessSettings();
 
   if (provider !== 'resend') {
     throw new Error('EMAIL_PROVIDER no soportado. Usa EMAIL_PROVIDER=resend.');
@@ -23,8 +24,8 @@ export function getEmailProviderConfig(): EmailProviderConfig {
   return {
     provider: 'resend',
     apiKey,
-    from: fromName ? `${fromName} <${from}>` : from,
-    replyTo,
+    from: settings.email_from_name ? `${settings.email_from_name} <${from}>` : from,
+    replyTo: settings.email_reply_to,
   };
 }
 
@@ -39,7 +40,7 @@ export async function sendTransactionalEmail({
   html: string;
   text?: string;
 }) {
-  const config = getEmailProviderConfig();
+  const config = await getEmailProviderConfig();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
 
