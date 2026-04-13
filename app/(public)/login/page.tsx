@@ -4,14 +4,30 @@ import { LoginForm } from '@/components/auth/login-form';
 import { AlertBanner } from '@/components/shared/alert-banner';
 import { hasSupabaseCredentials } from '@/lib/supabase/env';
 
+const disallowedNextPrefixes = ['/auth/', '/login', '/recuperar-acceso', '/actualizar-clave'];
+
+function sanitizeLoginNext(value: string | undefined) {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) {
+    return { safeNext: undefined, wasSanitized: Boolean(value) };
+  }
+
+  if (disallowedNextPrefixes.some((prefix) => value === prefix || value.startsWith(`${prefix}/`))) {
+    return { safeNext: undefined, wasSanitized: true };
+  }
+
+  return { safeNext: value, wasSanitized: false };
+}
+
 interface LoginPageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = (await searchParams) ?? {};
-  const next = typeof params.next === 'string' ? params.next : undefined;
+  const rawNext = typeof params.next === 'string' ? params.next : undefined;
+  const { safeNext, wasSanitized } = sanitizeLoginNext(rawNext);
   const error = typeof params.error === 'string' ? params.error : undefined;
+  const notice = typeof params.notice === 'string' ? params.notice : undefined;
 
   return (
     <div className="space-y-6">
@@ -33,7 +49,22 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         />
       ) : null}
 
-      <LoginForm next={next} initialMessage={error} />
+      {wasSanitized ? (
+        <AlertBanner
+          title="Ruta protegida no válida"
+          description="Detectamos un destino inválido después del acceso. Inicia sesión y te llevaremos al dashboard."
+          variant="warning"
+        />
+      ) : null}
+
+      {notice ? (
+        <AlertBanner
+          title="Acceso listo"
+          description={notice}
+        />
+      ) : null}
+
+      <LoginForm next={safeNext} initialMessage={error} />
     </div>
   );
 }

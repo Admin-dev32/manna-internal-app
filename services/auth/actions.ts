@@ -6,8 +6,11 @@ import { redirect } from 'next/navigation';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { hasSupabaseCredentials, supabaseEnv } from '@/lib/supabase/env';
-import { getProfileRecordByUserId } from '@/services/auth/profile';
+import { getCurrentUserAccessContext, getProfileRecordByUserId, reconcileCurrentUserProfile } from '@/services/auth/profile';
 import type { AuthActionState } from '@/services/auth/auth-action-state';
+
+const corporateEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+const disallowedNextPrefixes = ['/auth/', '/login', '/recuperar-acceso', '/actualizar-clave'];
 
 function missingConfigurationState(message?: string): AuthActionState {
   return {
@@ -18,11 +21,33 @@ function missingConfigurationState(message?: string): AuthActionState {
 }
 
 function sanitizeRedirectTarget(value: string | null): Route {
-  if (!value || !value.startsWith('/')) {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) {
+    return '/dashboard';
+  }
+
+  if (disallowedNextPrefixes.some((prefix) => value === prefix || value.startsWith(`${prefix}/`))) {
     return '/dashboard';
   }
 
   return value as Route;
+}
+
+function mapLoginSupabaseError(message: string | undefined) {
+  const normalized = (message ?? '').toLowerCase();
+
+  if (normalized.includes('invalid login credentials')) {
+    return 'Correo o contraseña incorrectos. Verifica tus datos e inténtalo de nuevo.';
+  }
+
+  if (normalized.includes('email not confirmed')) {
+    return 'Tu correo aún no está confirmado. Revisa tu bandeja o contacta al administrador.';
+  }
+
+  if (normalized.includes('too many requests')) {
+    return 'Detectamos demasiados intentos seguidos. Espera unos minutos e inténtalo nuevamente.';
+  }
+
+  return 'No fue posible iniciar sesión por un problema temporal. Intenta de nuevo en unos minutos.';
 }
 
 export async function loginAction(_previousState: AuthActionState, formData: FormData): Promise<AuthActionState> {
@@ -30,7 +55,7 @@ export async function loginAction(_previousState: AuthActionState, formData: For
     return missingConfigurationState();
   }
 
-  const email = String(formData.get('email') ?? '').trim();
+  const email = String(formData.get('email') ?? '').trim().toLowerCase();
   const password = String(formData.get('password') ?? '');
   const next = sanitizeRedirectTarget(formData.get('next')?.toString() ?? null);
 
@@ -38,6 +63,13 @@ export async function loginAction(_previousState: AuthActionState, formData: For
     return {
       status: 'error',
       message: 'Ingresa tu correo y contraseña para continuar.',
+    };
+  }
+
+  if (!corporateEmailPattern.test(email)) {
+    return {
+      status: 'error',
+      message: 'Ingresa un correo válido para iniciar sesión.',
     };
   }
 
@@ -51,7 +83,7 @@ export async function loginAction(_previousState: AuthActionState, formData: For
   if (error) {
     return {
       status: 'error',
-      message: 'No fue posible iniciar sesión. Verifica tus credenciales e inténtalo otra vez.',
+      message: mapLoginSupabaseError(error.message),
     };
   }
 
@@ -67,13 +99,20 @@ export async function loginAction(_previousState: AuthActionState, formData: For
     };
   }
 
-  const profile = await getProfileRecordByUserId(supabase, user.id);
+  let profile = await getProfileRecordByUserId(supabase, user.id);
+
+  if (!profile) {
+    const reconciledProfile = await reconcileCurrentUserProfile(supabase);
+    if (reconciledProfile) {
+      profile = reconciledProfile;
+    }
+  }
 
   if (!profile) {
     await supabase.auth.signOut();
     return {
       status: 'error',
-      message: 'Tu usuario no tiene un perfil interno válido. Verifica la migración de perfiles en Supabase.',
+      message: 'Tu usuario no tiene un perfil interno válido. Ya intentamos reconciliarlo automáticamente; contacta al administrador.',
     };
   }
 
@@ -82,6 +121,24 @@ export async function loginAction(_previousState: AuthActionState, formData: For
     return {
       status: 'error',
       message: 'Tu cuenta está inactiva. Contacta al administrador del sistema.',
+    };
+  }
+
+  const accessContext = await getCurrentUserAccessContext(supabase);
+
+  if (!accessContext || accessContext.is_active === false) {
+    await supabase.auth.signOut();
+    return {
+      status: 'error',
+      message: 'No pudimos validar tu acceso interno en este momento. Solicita soporte para revisar tu perfil.',
+    };
+  }
+
+  if (!Array.isArray(accessContext.permissions) || accessContext.permissions.length === 0) {
+    await supabase.auth.signOut();
+    return {
+      status: 'error',
+      message: 'Tu usuario no tiene permisos activos para ingresar. Contacta al administrador.',
     };
   }
 
@@ -97,12 +154,19 @@ export async function recoverAccessAction(
     return missingConfigurationState();
   }
 
-  const email = String(formData.get('email') ?? '').trim();
+  const email = String(formData.get('email') ?? '').trim().toLowerCase();
 
   if (!email) {
     return {
       status: 'error',
       message: 'Ingresa tu correo para recibir el enlace de recuperación.',
+    };
+  }
+
+  if (!corporateEmailPattern.test(email)) {
+    return {
+      status: 'error',
+      message: 'Ingresa un correo válido (ej. nombre@manna.com) para continuar.',
     };
   }
 
@@ -112,19 +176,19 @@ export async function recoverAccessAction(
   }
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${supabaseEnv.appUrl}/auth/callback?next=/actualizar-clave`,
+    redirectTo: `${supabaseEnv.appUrl}/auth/callback?next=/actualizar-clave&flow=recovery`,
   });
 
   if (error) {
     return {
       status: 'error',
-      message: 'No pudimos enviar el enlace de recuperación. Intenta de nuevo en unos minutos.',
+      message: 'No pudimos enviar el enlace de recuperación. Verifica tu correo e inténtalo otra vez en unos minutos.',
     };
   }
 
   return {
     status: 'success',
-    message: 'Te enviamos un enlace seguro para restablecer tu acceso.',
+    message: 'Si el correo está autorizado, recibirás un enlace seguro en breve. Revisa bandeja principal, spam y promociones.',
   };
 }
 
@@ -138,6 +202,9 @@ export async function updatePasswordAction(
 
   const password = String(formData.get('password') ?? '');
   const confirmPassword = String(formData.get('confirmPassword') ?? '');
+  const flow = formData.get('flow') === 'invite' || formData.get('flow') === 'recovery'
+    ? (formData.get('flow') as 'invite' | 'recovery')
+    : null;
 
   if (password.length < 8) {
     return {
@@ -158,6 +225,17 @@ export async function updatePasswordAction(
     return missingConfigurationState();
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      status: 'error',
+      message: 'Tu enlace de recuperación ya no es válido o expiró. Solicita uno nuevo para continuar.',
+    };
+  }
+
   const { error } = await supabase.auth.updateUser({ password });
 
   if (error) {
@@ -169,7 +247,10 @@ export async function updatePasswordAction(
 
   return {
     status: 'success',
-    message: 'Tu contraseña fue actualizada. Ya puedes iniciar sesión con la nueva clave.',
+    message:
+      flow === 'invite'
+        ? 'Tu acceso inicial quedó configurado correctamente. Redirigiendo al inicio de sesión…'
+        : 'Tu contraseña fue actualizada correctamente. Redirigiendo al acceso…',
   };
 }
 

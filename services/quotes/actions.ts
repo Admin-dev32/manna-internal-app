@@ -9,7 +9,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getClientByLeadId } from '@/services/clients/queries';
 import { getLeadById } from '@/services/leads/queries';
 import { sendTransactionalEmail } from '@/services/email/provider';
-import { createCentralPaymentLink, getInternalPaymentsConfig } from '@/services/payments/internal-api';
+import { createCentralPaymentLink, getInternalPaymentsConfig, getInternalPaymentsErrorMessage } from '@/services/payments/internal-api';
 import { getLatestPaymentLinkBySourceAndMode, getPaymentLinksBySource } from '@/services/payments/queries';
 import type { PreEventPaymentLinkFormState } from '@/services/pre-events/payment-link-form-state';
 import { getPreEventByQuoteId } from '@/services/pre-events/queries';
@@ -156,7 +156,7 @@ async function ensureQuotePaymentLinkForEmail({
     return { link: existingLink, status: 'existing' as const };
   }
 
-  const { source, system, timezone } = getInternalPaymentsConfig();
+  const { source, system, timezone } = await getInternalPaymentsConfig();
   const payload = buildPaymentLinkPayload({
     mode: paymentMode,
     source,
@@ -445,7 +445,7 @@ export async function createQuotePaymentLinkAction(
   }
 
   try {
-    const { source, system, timezone } = getInternalPaymentsConfig();
+    const { source, system, timezone } = await getInternalPaymentsConfig();
     const payload = buildPaymentLinkPayload({
       mode: paymentMode,
       source,
@@ -491,7 +491,7 @@ export async function createQuotePaymentLinkAction(
 
     return { status: 'success', message: 'Payment link creado y guardado correctamente.' };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'No fue posible crear el payment link con la API central.';
+    const message = getInternalPaymentsErrorMessage(error);
     return { status: 'error', message };
   }
 }
@@ -552,7 +552,7 @@ export async function sendQuoteEmailAction(
     }
   }
 
-  const draft = buildQuoteEmailDraft({
+  const draft = await buildQuoteEmailDraft({
     quote,
     lead,
     client,
@@ -595,6 +595,7 @@ export async function sendQuoteEmailAction(
     return { status: 'success', message: `Cotización enviada correctamente a ${draft.toEmail}.` };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'No fue posible enviar la cotización por email.';
+    const fallbackProvider = (process.env.EMAIL_PROVIDER ?? 'resend').trim().toLowerCase() === 'smtp' ? 'smtp' : 'resend';
     await supabase.from('quote_email_deliveries').insert({
       quote_id: quote.id,
       to_email: draft.toEmail,
@@ -603,7 +604,7 @@ export async function sendQuoteEmailAction(
       payment_link_id: paymentLinkForEmail?.id ?? null,
       status: 'failed',
       error_message: message,
-      provider: 'resend',
+      provider: fallbackProvider,
       provider_message_id: null,
       sent_by: session.user.id,
       sent_at: null,

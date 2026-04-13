@@ -101,6 +101,7 @@ export function UsersList({ users, searchTerm }: UsersListProps) {
                       </TableCell>
                       <TableCell>
                         <Badge variant={user.is_active ? 'success' : 'warning'}>{user.is_active ? 'Activo' : 'Inactivo'}</Badge>
+                        {user.invitation_pending ? <Badge className="ml-2" variant="secondary">Invitación pendiente</Badge> : null}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-2">
