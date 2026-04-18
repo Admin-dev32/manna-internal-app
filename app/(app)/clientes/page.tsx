@@ -5,6 +5,7 @@ import { PreEventStatusBadge } from '@/components/pre-events/pre-event-status-ba
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { requirePermission } from '@/lib/auth/guards';
+import { getCommunicationLanguageLabel } from '@/services/communication/language';
 import { getClientsOverviewPageData } from '@/services/clients/queries';
 
 function formatDate(value: string) {
@@ -50,6 +51,7 @@ export default async function ClientesPage() {
                     <p className="text-sm text-muted-foreground">
                       {client.email ?? 'Sin email'} · {client.phone ?? 'Sin teléfono'}
                     </p>
+                    <p className="text-sm text-muted-foreground">Idioma preferido: {getCommunicationLanguageLabel(client.preferred_language)}</p>
                     <p className="text-sm text-muted-foreground">Creado el {formatDate(client.created_at)}</p>
                     <p className="text-sm text-muted-foreground">
                       {preEvent ? 'Ya cuenta con reserva inicial ligada.' : 'Aún no tiene reserva inicial ligada.'}

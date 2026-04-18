@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState } from 'react';
+import { useActionState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { KeySquare } from 'lucide-react';
 
 import { AuthFeedback } from '@/components/auth/auth-feedback';
@@ -10,11 +11,31 @@ import { Input } from '@/components/ui/input';
 import { updatePasswordAction } from '@/services/auth/actions';
 import { initialAuthActionState } from '@/services/auth/auth-action-state';
 
-export function UpdatePasswordForm() {
+interface UpdatePasswordFormProps {
+  flow: 'invite' | 'recovery' | null;
+}
+
+export function UpdatePasswordForm({ flow }: UpdatePasswordFormProps) {
+  const router = useRouter();
   const [state, formAction] = useActionState(updatePasswordAction, initialAuthActionState);
+
+  useEffect(() => {
+    if (state.status !== 'success') return;
+
+    const timeoutId = window.setTimeout(() => {
+      const notice = flow === 'invite'
+        ? 'Acceso inicial configurado. Inicia sesión con tu nueva clave.'
+        : 'Contraseña actualizada. Ya puedes iniciar sesión con tu nueva clave.';
+
+      router.replace(`/login?notice=${encodeURIComponent(notice)}`);
+    }, 1500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [router, state.status]);
 
   return (
     <form className="space-y-4" action={formAction}>
+      {flow ? <input type="hidden" name="flow" value={flow} /> : null}
       <AuthFeedback state={state} />
       <div className="space-y-2">
         <label className="text-sm font-medium" htmlFor="password">
@@ -41,6 +62,13 @@ export function UpdatePasswordForm() {
         </div>
       </div>
       <AuthSubmitButton idleLabel="Actualizar contraseña" loadingLabel="Actualizando..." />
+      {state.status === 'success' ? (
+        <p className="text-center text-sm text-muted-foreground">
+          {flow === 'invite'
+            ? 'Tu acceso inicial quedó listo. Te llevaremos al inicio de sesión…'
+            : 'Te llevaremos al acceso en unos segundos…'}
+        </p>
+      ) : null}
       <Link href="/login" className="block text-center text-sm font-medium text-primary hover:underline">
         Volver al acceso
       </Link>

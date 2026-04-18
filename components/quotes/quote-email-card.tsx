@@ -7,6 +7,7 @@ import { AuthFeedback } from '@/components/auth/auth-feedback';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { getCommunicationLanguageSourceLabel } from '@/services/communication/language';
 import { initialQuoteEmailFormState } from '@/services/quotes/email-form-state';
 import type { QuoteEmailFormState } from '@/services/quotes/email-form-state';
 import { initialQuoteManualDeliveryFormState } from '@/services/quotes/manual-delivery-form-state';
@@ -17,6 +18,13 @@ interface QuoteEmailPreview {
   toEmail: string;
   recipientName: string;
   subject: string;
+  templateResolution: 'exact' | 'default_fallback' | 'missing';
+  templateName: string | null;
+  templateKey: string | null;
+  requestedLanguage: 'es' | 'en';
+  resolvedLanguage: 'es' | 'en' | null;
+  languageSource: 'client_preference' | 'lead_language' | 'default';
+  operatorMessage: string | null;
   eventDate: string;
   eventTime: string;
   eventAddress: string;
@@ -48,15 +56,21 @@ export function QuoteEmailCard({
   deliveries,
   manualDeliveries,
   action,
+  followupAction,
+  paymentReminderAction,
   manualDeliveryAction,
 }: {
   preview: QuoteEmailPreview;
   deliveries: QuoteEmailDeliveryRecord[];
   manualDeliveries: QuoteManualDeliveryRecord[];
   action: (state: QuoteEmailFormState, formData: FormData) => Promise<QuoteEmailFormState>;
+  followupAction: (state: QuoteEmailFormState, formData: FormData) => Promise<QuoteEmailFormState>;
+  paymentReminderAction: (state: QuoteEmailFormState, formData: FormData) => Promise<QuoteEmailFormState>;
   manualDeliveryAction: (state: QuoteManualDeliveryFormState, formData: FormData) => Promise<QuoteManualDeliveryFormState>;
 }) {
   const [state, formAction] = useActionState(action, initialQuoteEmailFormState);
+  const [followupState, followupFormAction] = useActionState(followupAction, initialQuoteEmailFormState);
+  const [reminderState, reminderFormAction] = useActionState(paymentReminderAction, initialQuoteEmailFormState);
   const [manualState, manualFormAction] = useActionState(manualDeliveryAction, initialQuoteManualDeliveryFormState);
   const [manualChannel, setManualChannel] = useState<'whatsapp' | 'sms' | 'manual_link'>('whatsapp');
 
@@ -86,11 +100,32 @@ export function QuoteEmailCard({
       </CardHeader>
       <CardContent className="space-y-4">
         <AuthFeedback state={state} />
+        <AuthFeedback state={followupState} />
+        <AuthFeedback state={reminderState} />
         <AuthFeedback state={manualState} />
 
         <div className="rounded-2xl border border-border bg-muted/20 p-4 text-sm">
           <p><strong>Para:</strong> {preview.recipientName} ({preview.toEmail || 'Sin email'})</p>
           <p className="mt-1"><strong>Asunto:</strong> {preview.subject}</p>
+          <p className="mt-1">
+            <strong>Idioma:</strong> solicitado {preview.requestedLanguage.toUpperCase()}
+            {preview.resolvedLanguage ? ` · final ${preview.resolvedLanguage.toUpperCase()}` : ''}
+          </p>
+          <p className="mt-1"><strong>Fuente de idioma:</strong> {getCommunicationLanguageSourceLabel(preview.languageSource)}</p>
+          <p className="mt-1">
+            <strong>Plantilla:</strong>{' '}
+            {preview.templateName
+              ? `${preview.templateName} (${preview.templateKey})`
+              : 'No hay plantilla activa; se usará draft base'}
+          </p>
+          {preview.templateResolution === 'exact' ? (
+            <Badge className="mt-2" variant="success">Plantilla exacta por idioma</Badge>
+          ) : preview.templateResolution === 'default_fallback' ? (
+            <Badge className="mt-2" variant="warning">Fallback al idioma por defecto</Badge>
+          ) : (
+            <Badge className="mt-2" variant="warning">Sin plantilla activa</Badge>
+          )}
+          {preview.operatorMessage ? <p className="mt-2 text-xs text-amber-700">{preview.operatorMessage}</p> : null}
           <p className="mt-1"><strong>Marca:</strong> {preview.brandingCompanyName} · {preview.brandingWebsiteUrl}</p>
           <p className="mt-1"><strong>Modo de cobro activo:</strong> {preview.activeModeLabel} · {preview.activeModeAmountLabel}</p>
           <p className="mt-1 text-xs text-muted-foreground">{preview.activeModeRationale}</p>
@@ -144,12 +179,26 @@ export function QuoteEmailCard({
             ))}
           </div>
         ) : (
-          <form action={formAction}>
-            <Button type="submit" className="w-full sm:w-auto">
-              <Send className="size-4" />
-              Enviar cotización por email
-            </Button>
-          </form>
+          <div className="flex flex-wrap gap-2">
+            <form action={formAction}>
+              <Button type="submit" className="w-full sm:w-auto">
+                <Send className="size-4" />
+                Enviar cotización (quote_delivery)
+              </Button>
+            </form>
+            <form action={followupFormAction}>
+              <Button type="submit" variant="outline" className="w-full sm:w-auto">
+                <Send className="size-4" />
+                Enviar seguimiento (quote_followup)
+              </Button>
+            </form>
+            <form action={reminderFormAction}>
+              <Button type="submit" variant="outline" className="w-full sm:w-auto">
+                <Send className="size-4" />
+                Enviar recordatorio (payment_reminder)
+              </Button>
+            </form>
+          </div>
         )}
 
         <div className="space-y-2">
