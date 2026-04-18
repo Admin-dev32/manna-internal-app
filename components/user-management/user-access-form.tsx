@@ -271,16 +271,19 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
           <CardDescription>Acciones rápidas para invitaciones pendientes y limpieza segura de altas incompletas.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
-          <form action={resendAction}>
-            <Button type="submit" variant="outline" disabled={!user.can_resend_invitation}>
-              Reenviar invitación
-            </Button>
-          </form>
-          <form action={deleteAction}>
-            <Button type="submit" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800" disabled={!user.can_delete_user}>
-              Eliminar usuario pendiente
-            </Button>
-          </form>
+          <Button type="submit" variant="outline" formAction={resendAction} formNoValidate disabled={!user.can_resend_invitation}>
+            Reenviar invitación
+          </Button>
+          <Button
+            type="submit"
+            variant="outline"
+            formAction={deleteAction}
+            formNoValidate
+            className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+            disabled={!user.can_delete_user}
+          >
+            Eliminar usuario pendiente
+          </Button>
           {!user.can_resend_invitation ? (
             <p className="w-full text-xs text-muted-foreground">Solo disponible para usuarios invitados pendientes sin primer acceso.</p>
           ) : null}

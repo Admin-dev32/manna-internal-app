@@ -5,8 +5,10 @@ import type { PreEventRecord } from '@/types/pre-events';
 import type { LeadProfileOption } from '@/types/leads';
 import type { ClientRecord } from '@/types/clients';
 import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
+import { ClientLanguageForm } from '@/components/clients/client-language-form';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { getCommunicationLanguageLabel } from '@/services/communication/language';
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
@@ -36,7 +38,7 @@ export function ClientDetail({ client, profiles, preEvent }: { client: ClientRec
           <InfoItem label="Nombre" value={client.full_name} />
           <InfoItem label="Teléfono" value={client.phone ?? 'No capturado'} />
           <InfoItem label="Email" value={client.email ?? 'No capturado'} />
-          <InfoItem label="Idioma" value={client.preferred_language ?? 'Sin definir'} />
+          <InfoItem label="Idioma" value={getCommunicationLanguageLabel(client.preferred_language)} />
           <InfoItem label="Ubicación" value={client.location ?? 'Sin definir'} />
           <InfoItem label="Lead original" value={client.lead_id} />
           <InfoItem label="Cotización origen" value={client.source_quote_id ?? 'Sin cotización ligada'} />
@@ -45,6 +47,8 @@ export function ClientDetail({ client, profiles, preEvent }: { client: ClientRec
           <InfoItem label="Última edición" value={profiles[client.updated_by]?.full_name ?? 'Usuario interno'} />
         </CardContent>
       </Card>
+
+      <ClientLanguageForm client={client} />
 
       <Card>
         <CardHeader>

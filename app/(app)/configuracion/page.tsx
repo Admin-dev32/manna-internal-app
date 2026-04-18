@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ClipboardList, ListChecks, ShieldCheck, Users, WalletCards } from 'lucide-react';
+import { ClipboardList, ListChecks, Mail, ShieldCheck, Users, WalletCards } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,6 +48,30 @@ export default async function ConfiguracionPage() {
               </p>
               <Button asChild>
                 <Link href="/configuracion/usuarios">Administrar usuarios</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {canViewAdvancedSettings ? (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <Mail className="size-5" />
+                </div>
+                <div>
+                  <CardTitle>Plantillas de email</CardTitle>
+                  <CardDescription>Asuntos y HTML editables por propósito con placeholders seguros y preview.</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Crea versiones de plantilla por propósito sin tocar secretos de SMTP/Resend ni hardcodes en cada flujo.
+              </p>
+              <Button asChild>
+                <Link href="/configuracion/plantillas-email">Administrar plantillas de email</Link>
               </Button>
             </CardContent>
           </Card>

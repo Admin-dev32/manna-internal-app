@@ -39,6 +39,46 @@ function extractAddressFromFromHeader(from: string) {
   return from.trim();
 }
 
+function redactSensitiveText(value: string) {
+  return value
+    .replace(/Authorization:\s*Bearer\s+[^\s]+/gi, 'Authorization: Bearer [REDACTED]')
+    .replace(/Bearer\s+[A-Za-z0-9\-_.=]+/gi, 'Bearer [REDACTED]')
+    .replace(/(password|smtp_password|api[_-]?key|token|secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
+    .replace(/\b[A-Za-z0-9+/]{24,}={0,2}\b/g, '[REDACTED_BASE64]');
+}
+
+function getSafeSmtpErrorMessage(error: unknown) {
+  const raw = error instanceof Error ? redactSensitiveText(error.message) : '';
+
+  if (raw.includes('535') || /auth|autentic/i.test(raw)) {
+    return 'No se pudo autenticar con el servidor SMTP. Verifica SMTP_USER y SMTP_PASSWORD.';
+  }
+
+  if (raw.includes('timeout') || /timed out|econnreset|enotfound|econnrefused|network/i.test(raw)) {
+    return 'No se pudo conectar al servidor SMTP. Verifica SMTP_HOST, SMTP_PORT, red y disponibilidad del servicio.';
+  }
+
+  if (raw.includes('550') || raw.includes('553') || raw.includes('554')) {
+    return 'El servidor SMTP rechazó el envío del correo. Verifica remitente, destinatario y políticas del servidor.';
+  }
+
+  return 'No fue posible enviar el correo mediante SMTP. Revisa configuración SMTP y estado del servidor.';
+}
+
+export function getSafeEmailErrorMessage(error: unknown) {
+  const raw = error instanceof Error ? redactSensitiveText(error.message) : '';
+
+  if (!raw) {
+    return 'No fue posible enviar el correo por un error inesperado.';
+  }
+
+  if (raw.toLowerCase().includes('smtp')) {
+    return getSafeSmtpErrorMessage(error);
+  }
+
+  return raw;
+}
+
 async function readSmtpResponse(socket: net.Socket | tls.TLSSocket) {
   return new Promise<{ code: number; message: string }>((resolve, reject) => {
     let buffer = '';
@@ -94,7 +134,7 @@ async function sendSmtpCommand(
   socket.write(`${command}\r\n`);
   const response = await readSmtpResponse(socket);
   if (!expectedCodes.includes(response.code)) {
-    throw new Error(`SMTP rechazó "${command}" (${response.code}): ${response.message}`);
+    throw new Error(`SMTP rechazó la operación (${response.code}).`);
   }
   return response;
 }
@@ -137,7 +177,7 @@ async function sendViaSmtp(config: SmtpProviderConfig, payload: { to: string; su
   try {
     const greeting = await readSmtpResponse(socket);
     if (greeting.code !== 220) {
-      throw new Error(`Servidor SMTP no respondió ready (${greeting.code}): ${greeting.message}`);
+      throw new Error(`Servidor SMTP no respondió ready (${greeting.code}).`);
     }
 
     await sendSmtpCommand(socket, 'EHLO manna-internal-app', [250]);
@@ -163,7 +203,7 @@ async function sendViaSmtp(config: SmtpProviderConfig, payload: { to: string; su
 
     const dataResponse = await readSmtpResponse(socket);
     if (dataResponse.code !== 250) {
-      throw new Error(`SMTP no aceptó el contenido del correo (${dataResponse.code}): ${dataResponse.message}`);
+      throw new Error(`SMTP no aceptó el contenido del correo (${dataResponse.code}).`);
     }
 
     await sendSmtpCommand(socket, 'QUIT', [221]);
@@ -173,6 +213,8 @@ async function sendViaSmtp(config: SmtpProviderConfig, payload: { to: string; su
       provider: 'smtp' as const,
       providerMessageId,
     };
+  } catch (error) {
+    throw new Error(getSafeSmtpErrorMessage(error));
   } finally {
     clearTimeout(timeout);
     socket.end();
@@ -247,8 +289,7 @@ export async function sendTransactionalEmail({
     try {
       return await sendViaSmtp(config, { to, subject, html, text });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No fue posible conectar con SMTP.';
-      throw new Error(message);
+      throw new Error(getSafeSmtpErrorMessage(error));
     }
   }
 
@@ -291,7 +332,8 @@ export async function sendTransactionalEmail({
   }
 
   if (!response.ok) {
-    throw new Error(String(payload?.message ?? payload?.error ?? `Error enviando email (status ${response.status}).`));
+    const message = String(payload?.message ?? payload?.error ?? `Error enviando email (status ${response.status}).`);
+    throw new Error(getSafeEmailErrorMessage(new Error(message)));
   }
 
   return {
