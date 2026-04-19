@@ -131,10 +131,13 @@ export function EventInventorySection({
                         <Badge variant={prepStatusVariant(requirement.prep_status)}>{prepStatusLabel(requirement.prep_status)}</Badge>
                         <Badge variant="outline">{requirement.source_type === 'template' ? 'Base plantilla' : 'Manual evento'}</Badge>
                         {item?.category ? <Badge variant="outline">{item.category}</Badge> : null}
+                        {item?.storage_location ? <Badge variant="outline">Storage: {item.storage_location}</Badge> : null}
+                        {item?.storage_box ? <Badge variant="outline">Caja/bin: {item.storage_box}</Badge> : null}
                       </div>
                       <p className="text-sm text-muted-foreground">
                         Requerido: {formatQuantity(requirement.quantity_required)} {item?.unit ?? 'u'} · Contado: {formatQuantity(requirement.quantity_counted)} {item?.unit ?? 'u'} · Faltante: {formatQuantity(missing)} {item?.unit ?? 'u'}
                       </p>
+                      {item?.usage_bars ? <p className="text-xs text-muted-foreground">Uso en barras/servicios: {item.usage_bars}</p> : null}
                       {requirement.checked_at ? (
                         <p className="text-xs text-muted-foreground">
                           Último conteo: {new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(requirement.checked_at))}
@@ -261,7 +264,7 @@ export function EventInventorySection({
                 >
                   {availableItemsToLink.map((item) => (
                     <option key={item.id} value={item.id}>
-                      {item.name} · Stock {formatQuantity(availabilityByItem[item.id]?.availableStock ?? item.current_stock)} {item.unit}
+                      {item.name} · Stock {formatQuantity(availabilityByItem[item.id]?.availableStock ?? item.current_stock)} {item.unit} · {item.storage_location ?? 'Sin storage'} / {item.storage_box ?? 'Sin caja'}
                     </option>
                   ))}
                 </select>
