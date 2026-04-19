@@ -4,11 +4,16 @@ export type EventInventoryPrepStatus = (typeof EVENT_INVENTORY_PREP_STATUSES)[nu
 
 export interface InventoryItemRecord {
   id: string;
+  code: string | null;
   name: string;
   category: string | null;
+  usage_bars: string | null;
   unit: string;
   current_stock: number;
   minimum_stock: number | null;
+  ideal_stock: number | null;
+  storage_location: string | null;
+  storage_box: string | null;
   note: string | null;
   is_active: boolean;
   created_by: string;

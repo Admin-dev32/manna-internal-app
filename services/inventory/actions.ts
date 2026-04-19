@@ -89,24 +89,35 @@ export async function createInventoryItemAction(formData: FormData) {
   if (!hasPermission(session.user, 'inventory.manage')) return;
 
   const name = String(formData.get('name') ?? '').trim();
+  const code = normalizeOptionalString(formData.get('code'));
   const category = normalizeOptionalString(formData.get('category'));
+  const usageBars = normalizeOptionalString(formData.get('usage_bars'));
   const unit = String(formData.get('unit') ?? '').trim();
   const currentStock = normalizeNonNegativeNumber(formData.get('current_stock'));
   const minimumStockInput = normalizeOptionalString(formData.get('minimum_stock'));
   const minimumStock = minimumStockInput == null ? null : normalizeNonNegativeNumber(minimumStockInput);
+  const idealStockInput = normalizeOptionalString(formData.get('ideal_stock'));
+  const idealStock = idealStockInput == null ? null : normalizeNonNegativeNumber(idealStockInput);
+  const storageLocation = normalizeOptionalString(formData.get('storage_location'));
+  const storageBox = normalizeOptionalString(formData.get('storage_box'));
   const note = normalizeOptionalString(formData.get('note'));
   const isActive = String(formData.get('is_active') ?? 'true') === 'true';
 
-  if (!name || !unit || currentStock == null || minimumStockInput != null && minimumStock == null) {
+  if (!name || !unit || currentStock == null || minimumStockInput != null && minimumStock == null || idealStockInput != null && idealStock == null) {
     return;
   }
 
   await supabase.from('inventory_items').insert({
+    code,
     name,
     category,
+    usage_bars: usageBars,
     unit,
     current_stock: currentStock,
     minimum_stock: minimumStock,
+    ideal_stock: idealStock,
+    storage_location: storageLocation,
+    storage_box: storageBox,
     note,
     is_active: isActive,
     created_by: session.user.id,
@@ -127,15 +138,21 @@ export async function updateInventoryItemAction(itemId: string, formData: FormDa
   if (!existingItem) return;
 
   const name = String(formData.get('name') ?? '').trim();
+  const code = normalizeOptionalString(formData.get('code'));
   const category = normalizeOptionalString(formData.get('category'));
+  const usageBars = normalizeOptionalString(formData.get('usage_bars'));
   const unit = String(formData.get('unit') ?? '').trim();
   const currentStock = normalizeNonNegativeNumber(formData.get('current_stock'));
   const minimumStockInput = normalizeOptionalString(formData.get('minimum_stock'));
   const minimumStock = minimumStockInput == null ? null : normalizeNonNegativeNumber(minimumStockInput);
+  const idealStockInput = normalizeOptionalString(formData.get('ideal_stock'));
+  const idealStock = idealStockInput == null ? null : normalizeNonNegativeNumber(idealStockInput);
+  const storageLocation = normalizeOptionalString(formData.get('storage_location'));
+  const storageBox = normalizeOptionalString(formData.get('storage_box'));
   const note = normalizeOptionalString(formData.get('note'));
   const isActive = String(formData.get('is_active') ?? 'true') === 'true';
 
-  if (!name || !unit || currentStock == null || minimumStockInput != null && minimumStock == null) {
+  if (!name || !unit || currentStock == null || minimumStockInput != null && minimumStock == null || idealStockInput != null && idealStock == null) {
     return;
   }
 
@@ -143,10 +160,15 @@ export async function updateInventoryItemAction(itemId: string, formData: FormDa
     .from('inventory_items')
     .update({
       name,
+      code,
       category,
+      usage_bars: usageBars,
       unit,
       current_stock: currentStock,
       minimum_stock: minimumStock,
+      ideal_stock: idealStock,
+      storage_location: storageLocation,
+      storage_box: storageBox,
       note,
       is_active: isActive,
       updated_by: session.user.id,

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
 import { requireActiveSession } from '@/lib/auth/guards';
+import { normalizeCommunicationLanguage } from '@/services/communication/language';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 async function insertLeadActivity(leadId: string, actorId: string, summary: string, details: string | null) {
@@ -18,6 +19,11 @@ async function insertLeadActivity(leadId: string, actorId: string, summary: stri
     details,
     created_by: actorId,
   });
+}
+
+export interface ClientLanguageFormState {
+  status: 'idle' | 'success' | 'error';
+  message?: string;
 }
 
 export async function convertLeadToClientAction(leadId: string, quoteId: string) {
@@ -69,4 +75,38 @@ export async function convertLeadToClientAction(leadId: string, quoteId: string)
   revalidatePath(`/cotizaciones/${quoteId}` as Route);
   revalidatePath('/clientes');
   redirect(`/clientes/${client.id}` as Route);
+}
+
+export async function updateClientPreferredLanguageAction(
+  clientId: string,
+  _previousState: ClientLanguageFormState,
+  formData: FormData,
+): Promise<ClientLanguageFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  }
+
+  const rawLanguage = String(formData.get('preferred_language') ?? '').trim();
+  const preferredLanguage = normalizeCommunicationLanguage(rawLanguage || null);
+  if (!preferredLanguage) {
+    return { status: 'error', message: 'Selecciona un idioma válido (es/en).' };
+  }
+
+  const { error } = await supabase
+    .from('clients')
+    .update({
+      preferred_language: preferredLanguage,
+      updated_by: session.user.id,
+    })
+    .eq('id', clientId);
+
+  if (error) {
+    return { status: 'error', message: error.message || 'No se pudo actualizar el idioma preferido del cliente.' };
+  }
+
+  revalidatePath('/clientes' as Route);
+  revalidatePath(`/clientes/${clientId}` as Route);
+  return { status: 'success', message: 'Idioma de comunicación actualizado correctamente.' };
 }
