@@ -42,9 +42,12 @@ import type { FinancialExpenseRecord } from '@/types/finance';
 import type {
   BarMasterTemplateApplicationRecord,
   BarMasterTemplateRecord,
+  EventInventoryCloseoutStateRecord,
+  EventInventoryExecutionStateRecord,
   EventInventoryRequirementRecord,
   InventoryAvailabilitySummary,
   InventoryItemRecord,
+  InventoryStockMovementView,
 } from '@/types/inventory';
 import type { LeadProfileOption, LeadRecord } from '@/types/leads';
 import type {
@@ -95,9 +98,13 @@ export function EventDetail({
   canViewChat,
   canViewInventory,
   canPrepareInventory,
+  canApproveInventoryCloseout,
   inventoryItems,
   inventoryRequirements,
+  inventoryExecutionStateByRequirement,
+  inventoryCloseoutStateByRequirement,
   inventoryAvailabilityByItem,
+  inventoryRecentMovements,
   barMasterTemplates,
   barMasterTemplateApplications,
   applicableOperationalTemplates,
@@ -133,9 +140,13 @@ export function EventDetail({
   canViewChat: boolean;
   canViewInventory: boolean;
   canPrepareInventory: boolean;
+  canApproveInventoryCloseout: boolean;
   inventoryItems: InventoryItemRecord[];
   inventoryRequirements: EventInventoryRequirementRecord[];
+  inventoryExecutionStateByRequirement: Record<string, EventInventoryExecutionStateRecord>;
+  inventoryCloseoutStateByRequirement: Record<string, EventInventoryCloseoutStateRecord>;
   inventoryAvailabilityByItem: Record<string, InventoryAvailabilitySummary>;
+  inventoryRecentMovements: InventoryStockMovementView[];
   barMasterTemplates: BarMasterTemplateRecord[];
   barMasterTemplateApplications: BarMasterTemplateApplicationRecord[];
   applicableOperationalTemplates: Array<{
@@ -567,11 +578,21 @@ export function EventDetail({
           {canViewInventory ? (
             <EventInventorySection
               eventId={event.id}
+              eventSummary={{
+                eventType: event.event_type,
+                eventDate: event.event_date,
+                eventTime: event.event_time,
+                location: event.location,
+              }}
               inventoryItems={inventoryItems}
               requirements={inventoryRequirements}
+              executionStateByRequirement={inventoryExecutionStateByRequirement}
+              closeoutStateByRequirement={inventoryCloseoutStateByRequirement}
               availabilityByItem={inventoryAvailabilityByItem}
+              recentMovements={inventoryRecentMovements}
               profiles={profiles}
               canPrepareInventory={canPrepareInventory}
+              canApproveCloseout={canApproveInventoryCloseout}
               barMasterTemplates={barMasterTemplates}
               barMasterApplications={barMasterTemplateApplications}
             />

@@ -22,8 +22,16 @@ import type {
   EventTaskRecord,
 } from '@/types/events';
 import type { LeadProfileOption } from '@/types/leads';
-import type { EventInventoryRequirementRecord, InventoryAvailabilitySummary, InventoryItemRecord } from '@/types/inventory';
-import type { BarMasterTemplateApplicationRecord, BarMasterTemplateRecord } from '@/types/inventory';
+import type {
+  BarMasterTemplateApplicationRecord,
+  BarMasterTemplateRecord,
+  EventInventoryCloseoutStateRecord,
+  EventInventoryExecutionStateRecord,
+  EventInventoryRequirementRecord,
+  InventoryAvailabilitySummary,
+  InventoryItemRecord,
+  InventoryStockMovementView,
+} from '@/types/inventory';
 import type { QuoteRecord } from '@/types/quotes';
 import type { EventOperationalTemplateApplicationRecord } from '@/types/operational-templates';
 
@@ -266,6 +274,10 @@ export async function getEventDetailPageData(eventId: string) {
     ...inventorySection.inventoryItems.map((item) => item.updated_by),
     ...inventorySection.requirements.map((requirement) => requirement.checked_by),
     ...inventorySection.requirements.map((requirement) => requirement.updated_by),
+    ...Object.values(inventorySection.executionStateByRequirement).flatMap((state) => [state.shopping_updated_by, state.picking_updated_by]),
+    ...Object.values(inventorySection.closeoutStateByRequirement).flatMap((state) => [state.closed_by, state.reviewed_by]),
+    ...inventorySection.recentMovements.map((movement) => movement.created_by),
+    ...inventorySection.recentMovements.map((movement) => movement.approved_by),
     ...barMasterTemplateSection.applications.map((application) => application.applied_by),
   ].filter((value): value is string => Boolean(value));
 
@@ -353,7 +365,10 @@ export async function getEventDetailPageData(eventId: string) {
     recurringTaskRules,
     inventoryItems: inventorySection.inventoryItems as InventoryItemRecord[],
     inventoryRequirements: inventorySection.requirements as EventInventoryRequirementRecord[],
+    inventoryExecutionStateByRequirement: inventorySection.executionStateByRequirement as Record<string, EventInventoryExecutionStateRecord>,
+    inventoryCloseoutStateByRequirement: inventorySection.closeoutStateByRequirement as Record<string, EventInventoryCloseoutStateRecord>,
     inventoryAvailabilityByItem: inventorySection.availabilityByItem as Record<string, InventoryAvailabilitySummary>,
+    inventoryRecentMovements: inventorySection.recentMovements as InventoryStockMovementView[],
     barMasterTemplates: barMasterTemplateSection.templates as BarMasterTemplateRecord[],
     barMasterTemplateApplications: barMasterTemplateSection.applications as BarMasterTemplateApplicationRecord[],
     applicableOperationalTemplates: templateSection.applicableTemplates,
