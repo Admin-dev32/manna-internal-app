@@ -8,9 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { createInventoryItemAction, updateInventoryItemAction } from '@/services/inventory/actions';
+import { createInventoryItemAction, createInventoryManualAdjustmentAction, createInventoryRestockAction, updateInventoryItemAction } from '@/services/inventory/actions';
 import type { LeadProfileOption } from '@/types/leads';
-import type { InventoryAvailabilitySummary, InventoryItemRecord } from '@/types/inventory';
+import type { InventoryAvailabilitySummary, InventoryItemRecord, InventoryStockMovementView } from '@/types/inventory';
 
 function formatQuantity(value: number | null | undefined) {
   if (value == null) return '—';
@@ -43,14 +43,31 @@ function getPurchaseNeeded(item: InventoryItemRecord) {
   return Math.max(Number(target) - Number(item.current_stock ?? 0), 0);
 }
 
+function movementTypeLabel(type: InventoryStockMovementView['movement_type']) {
+  return {
+    purchase_restock: 'Restock',
+    manual_adjustment: 'Ajuste manual',
+    returned_from_event: 'Retorno evento',
+    waste_loss: 'Merma',
+  }[type];
+}
+
+function movementBadgeVariant(type: InventoryStockMovementView['movement_type']) {
+  if (type === 'purchase_restock' || type === 'returned_from_event') return 'success' as const;
+  if (type === 'manual_adjustment') return 'secondary' as const;
+  return 'warning' as const;
+}
+
 export function InventoryOverview({
   items,
   availabilityByItem,
   profiles,
+  recentMovements,
 }: {
   items: InventoryItemRecord[];
   availabilityByItem: Record<string, InventoryAvailabilitySummary>;
   profiles: Record<string, LeadProfileOption>;
+  recentMovements: InventoryStockMovementView[];
 }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'low' | 'missing'>('all');
@@ -133,6 +150,106 @@ export function InventoryOverview({
         <SummaryCard icon={AlertTriangle} label="Faltantes" value={shortageItems.toString()} />
         <SummaryCard icon={ShoppingCart} label="Por comprar" value={shoppingItems.toString()} />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Movimientos administrativos (Ledger Phase 2)</CardTitle>
+          <CardDescription>Registra compras/restock y ajustes manuales sin romper el flujo de eventos.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 xl:grid-cols-2">
+          <form action={createInventoryRestockAction} className="rounded-2xl border border-border bg-muted/20 p-4">
+            <h3 className="text-sm font-semibold text-foreground">Restock manual</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Publica `purchase_restock` en el ledger y sube `current_stock`.</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <Field label="Item">
+                <select name="inventory_item_id" defaultValue={items.find((item) => item.is_active)?.id ?? ''} className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm" required>
+                  {items.filter((item) => item.is_active).map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} · Stock {formatQuantity(item.current_stock)} {item.unit}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Cantidad">
+                <Input name="quantity" type="number" min="0.01" step="0.01" required placeholder="0.00" />
+              </Field>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Nota (opcional)</label>
+                <Input name="note" placeholder="Ej. compra semanal proveedor A" />
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">Validación: no se aceptan cantidades cero o negativas.</p>
+            <div className="mt-3 flex justify-end">
+              <Button type="submit">Registrar restock</Button>
+            </div>
+          </form>
+
+          <form action={createInventoryManualAdjustmentAction} className="rounded-2xl border border-border bg-muted/20 p-4">
+            <h3 className="text-sm font-semibold text-foreground">Ajuste manual</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Publica `manual_adjustment` con delta positivo/negativo y motivo obligatorio.</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <Field label="Item">
+                <select name="inventory_item_id" defaultValue={items.find((item) => item.is_active)?.id ?? ''} className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm" required>
+                  {items.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} · Stock {formatQuantity(item.current_stock)} {item.unit}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Delta (puede ser negativo)">
+                <Input name="quantity_delta" type="number" step="0.01" required placeholder="Ej. -2.00 o 4.50" />
+              </Field>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Motivo / nota (obligatoria)</label>
+                <Input name="note" required placeholder="Ej. ajuste por merma detectada en conteo físico" />
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">Validación: bloquea stock negativo y requiere nota siempre.</p>
+            <div className="mt-3 flex justify-end">
+              <Button type="submit" variant="secondary">Registrar ajuste</Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Ledger reciente (inventario maestro)</CardTitle>
+          <CardDescription>Trazabilidad de restock, ajustes y movimientos derivados de eventos.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {recentMovements.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
+              Aún no hay movimientos registrados.
+            </div>
+          ) : (
+            recentMovements.slice(0, 16).map((movement) => (
+              <div key={movement.id} className="rounded-2xl border border-border bg-background px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold text-foreground">{movement.inventory_item_name}</p>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={movementBadgeVariant(movement.movement_type)}>{movementTypeLabel(movement.movement_type)}</Badge>
+                    <Badge variant={movement.quantity_delta >= 0 ? 'success' : 'warning'}>
+                      {movement.quantity_delta >= 0 ? '+' : ''}
+                      {formatQuantity(movement.quantity_delta)} {movement.inventory_item_unit}
+                    </Badge>
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {movement.event_label ?? 'Sin evento'} · Ref: {movement.reference_type ?? 'n/a'} · Saldo: {formatQuantity(movement.balance_after)}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(movement.created_at))}
+                  {' · '}
+                  {profiles[movement.created_by]?.full_name ?? 'Usuario interno'}
+                  {movement.note ? ` · ${movement.note}` : ''}
+                </p>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

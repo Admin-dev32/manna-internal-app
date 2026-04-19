@@ -1,7 +1,15 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { EventRecord } from '@/types/events';
 import type { LeadProfileOption } from '@/types/leads';
-import type { EventInventoryRequirementRecord, InventoryAvailabilitySummary, InventoryItemRecord } from '@/types/inventory';
+import type {
+  EventInventoryCloseoutStateRecord,
+  EventInventoryExecutionStateRecord,
+  EventInventoryRequirementRecord,
+  InventoryAvailabilitySummary,
+  InventoryItemRecord,
+  InventoryStockMovementRecord,
+  InventoryStockMovementView,
+} from '@/types/inventory';
 
 const ACTIVE_EVENT_STATUSES = new Set(['pendiente', 'confirmado', 'en_preparacion']);
 
@@ -84,6 +92,81 @@ export async function getEventInventoryRequirements(eventId: string) {
   return (data ?? []) as EventInventoryRequirementRecord[];
 }
 
+export async function getEventInventoryExecutionState(requirementIds: string[]) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || requirementIds.length === 0) return [] as EventInventoryExecutionStateRecord[];
+
+  const uniqueIds = [...new Set(requirementIds)];
+  const { data } = await supabase
+    .from('event_inventory_execution_state')
+    .select('*')
+    .in('event_inventory_requirement_id', uniqueIds);
+
+  return (data ?? []) as EventInventoryExecutionStateRecord[];
+}
+
+export async function getEventInventoryCloseoutState(requirementIds: string[]) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || requirementIds.length === 0) return [] as EventInventoryCloseoutStateRecord[];
+
+  const uniqueIds = [...new Set(requirementIds)];
+  const { data } = await supabase
+    .from('event_inventory_closeout_state')
+    .select('*')
+    .in('event_inventory_requirement_id', uniqueIds);
+
+  return (data ?? []) as EventInventoryCloseoutStateRecord[];
+}
+
+export async function getRecentInventoryStockMovements(params?: { eventId?: string; limit?: number }) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as InventoryStockMovementView[];
+
+  const limit = Math.max(Math.min(params?.limit ?? 20, 100), 1);
+  let query = supabase
+    .from('inventory_stock_movements')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (params?.eventId) {
+    query = query.eq('event_id', params.eventId);
+  }
+
+  const { data } = await query;
+  const movements = (data ?? []) as InventoryStockMovementRecord[];
+  if (movements.length === 0) return [] as InventoryStockMovementView[];
+
+  const itemIds = [...new Set(movements.map((movement) => movement.inventory_item_id))];
+  const eventIds = [...new Set(movements.map((movement) => movement.event_id).filter((value): value is string => Boolean(value)))];
+
+  const [{ data: itemsData }, { data: eventsData }] = await Promise.all([
+    itemIds.length > 0
+      ? supabase.from('inventory_items').select('id, name, unit').in('id', itemIds)
+      : Promise.resolve({ data: [] }),
+    eventIds.length > 0
+      ? supabase.from('events').select('id, event_type, event_date').in('id', eventIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const itemMap = Object.fromEntries(((itemsData ?? []) as Array<{ id: string; name: string; unit: string }>).map((item) => [item.id, item]));
+  const eventMap = Object.fromEntries(
+    ((eventsData ?? []) as Array<{ id: string; event_type: string | null; event_date: string }>).map((event) => [event.id, event]),
+  );
+
+  return movements.map((movement) => {
+    const item = itemMap[movement.inventory_item_id];
+    const event = movement.event_id ? eventMap[movement.event_id] : null;
+
+    return {
+      ...movement,
+      inventory_item_name: item?.name ?? 'Material',
+      inventory_item_unit: item?.unit ?? 'u',
+      event_label: event ? `${event.event_type ?? 'Evento'} · ${event.event_date}` : null,
+    } satisfies InventoryStockMovementView;
+  });
+}
+
 async function getEventsMapForRequirementIds(eventIds: string[]) {
   const supabase = await createSupabaseServerClient();
   if (!supabase || eventIds.length === 0) return {} as Record<string, Pick<EventRecord, 'id' | 'status'>>;
@@ -97,13 +180,19 @@ async function getEventsMapForRequirementIds(eventIds: string[]) {
 export async function getInventoryOverviewPageData() {
   const [items, requirements] = await Promise.all([getInventoryItems(), getAllInventoryRequirements()]);
   const eventsById = await getEventsMapForRequirementIds(requirements.map((requirement) => requirement.event_id));
-  const profiles = await getProfilesMap(items.flatMap((item) => [item.created_by, item.updated_by]));
+  const recentMovements = await getRecentInventoryStockMovements({ limit: 40 });
+  const profiles = await getProfilesMap([
+    ...items.flatMap((item) => [item.created_by, item.updated_by]),
+    ...recentMovements.map((movement) => movement.created_by),
+    ...recentMovements.map((movement) => movement.approved_by),
+  ].filter((value): value is string => Boolean(value)));
 
   return {
     items,
     requirements,
     availabilityByItem: calculateAvailabilityMaps({ items, requirements, eventsById }),
     profiles,
+    recentMovements,
   };
 }
 
@@ -121,6 +210,11 @@ export async function getEventInventorySectionData(eventId: string) {
     getEventInventoryRequirements(eventId),
     getAllInventoryRequirements(),
   ]);
+  const [executionState, closeoutState] = await Promise.all([
+    getEventInventoryExecutionState(requirements.map((requirement) => requirement.id)),
+    getEventInventoryCloseoutState(requirements.map((requirement) => requirement.id)),
+  ]);
+  const recentMovements = await getRecentInventoryStockMovements({ eventId, limit: 30 });
 
   const linkedItemIds = new Set(requirements.map((requirement) => requirement.inventory_item_id));
   const eventItems = items.filter((item) => item.is_active || linkedItemIds.has(item.id));
@@ -135,6 +229,13 @@ export async function getEventInventorySectionData(eventId: string) {
   return {
     inventoryItems: eventItems,
     requirements,
+    executionStateByRequirement: Object.fromEntries(
+      executionState.map((state) => [state.event_inventory_requirement_id, state]),
+    ) as Record<string, EventInventoryExecutionStateRecord>,
+    closeoutStateByRequirement: Object.fromEntries(
+      closeoutState.map((state) => [state.event_inventory_requirement_id, state]),
+    ) as Record<string, EventInventoryCloseoutStateRecord>,
     availabilityByItem,
+    recentMovements,
   };
 }

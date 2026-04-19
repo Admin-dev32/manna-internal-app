@@ -7,5 +7,12 @@ export default async function InventarioPage() {
 
   const pageData = await getInventoryOverviewPageData();
 
-  return <InventoryOverview items={pageData.items} availabilityByItem={pageData.availabilityByItem} profiles={pageData.profiles} />;
+  return (
+    <InventoryOverview
+      items={pageData.items}
+      availabilityByItem={pageData.availabilityByItem}
+      profiles={pageData.profiles}
+      recentMovements={pageData.recentMovements}
+    />
+  );
 }

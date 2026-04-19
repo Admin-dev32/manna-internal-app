@@ -7,7 +7,15 @@ import { requireActiveSession } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getEventById } from '@/services/events/queries';
-import type { InventoryItemRecord, EventInventoryPrepStatus } from '@/types/inventory';
+import type {
+  EventInventoryCloseoutStatus,
+  EventInventoryPickingStatus,
+  EventInventoryPrepStatus,
+  EventInventoryShoppingStatus,
+  InventoryItemRecord,
+  InventoryStockMovementRecord,
+  InventoryStockMovementType,
+} from '@/types/inventory';
 
 function normalizeOptionalString(value: FormDataEntryValue | null) {
   const normalized = String(value ?? '').trim();
@@ -18,6 +26,16 @@ function normalizeNonNegativeNumber(value: FormDataEntryValue | null) {
   const normalized = String(value ?? '').trim();
   const numericValue = Number(normalized || '0');
   if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return null;
+  }
+
+  return numericValue;
+}
+
+function normalizeSignedNumber(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? '').trim();
+  const numericValue = Number(normalized);
+  if (!Number.isFinite(numericValue) || numericValue === 0) {
     return null;
   }
 
@@ -41,6 +59,18 @@ function derivePrepStatus(quantityRequired: number, quantityCounted: number | nu
   if (counted < quantityRequired) return 'faltante';
   if (counted === quantityRequired) return requestedStatus === 'listo' ? 'listo' : 'contado';
   return 'listo';
+}
+
+function normalizeShoppingStatus(value: string): EventInventoryShoppingStatus | null {
+  return value === 'pending' || value === 'bought' ? value : null;
+}
+
+function normalizePickingStatus(value: string): EventInventoryPickingStatus | null {
+  return value === 'pending' || value === 'pulled' ? value : null;
+}
+
+function normalizeCloseoutStatus(value: string): EventInventoryCloseoutStatus | null {
+  return value === 'pending' || value === 'submitted' || value === 'approved' || value === 'reopened' ? value : null;
 }
 
 async function revalidateInventoryPaths(eventId?: string) {
@@ -79,6 +109,229 @@ async function getEventInventoryRequirementById(eventId: string, requirementId: 
     quantity_counted: number | null;
     prep_status: EventInventoryPrepStatus;
   } | null) ?? null;
+}
+
+async function getCloseoutStateByRequirementId(requirementId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data } = await supabase
+    .from('event_inventory_closeout_state')
+    .select('*')
+    .eq('event_inventory_requirement_id', requirementId)
+    .maybeSingle();
+
+  return (data as {
+    id: string;
+    event_inventory_requirement_id: string;
+    returned_quantity: number;
+    waste_quantity: number;
+    closeout_status: EventInventoryCloseoutStatus;
+  } | null) ?? null;
+}
+
+async function getMovementByOriginKey(originKey: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data } = await supabase
+    .from('inventory_stock_movements')
+    .select('*')
+    .eq('origin_key', originKey)
+    .maybeSingle();
+
+  return (data as InventoryStockMovementRecord | null) ?? null;
+}
+
+async function createInventoryStockMovement(params: {
+  inventoryItemId: string;
+  movementType: InventoryStockMovementType;
+  quantityDelta: number;
+  createdBy: string;
+  approvedBy?: string;
+  eventId?: string | null;
+  eventInventoryRequirementId?: string | null;
+  closeoutStateId?: string | null;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  originKey?: string | null;
+  note?: string | null;
+}) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  if (!Number.isFinite(params.quantityDelta) || params.quantityDelta === 0) return null;
+
+  if (params.originKey) {
+    const existing = await getMovementByOriginKey(params.originKey);
+    if (existing) return existing;
+  }
+
+  const { data: stockRow } = await supabase
+    .from('inventory_items')
+    .select('current_stock')
+    .eq('id', params.inventoryItemId)
+    .maybeSingle();
+
+  const currentStock = Number(stockRow?.current_stock ?? 0);
+  const nextStock = Number((currentStock + params.quantityDelta).toFixed(2));
+  if (nextStock < 0) return null;
+
+  const { data: inserted, error } = await supabase
+    .from('inventory_stock_movements')
+    .insert({
+      inventory_item_id: params.inventoryItemId,
+      movement_type: params.movementType,
+      quantity_delta: params.quantityDelta,
+      reference_type: params.referenceType ?? null,
+      reference_id: params.referenceId ?? null,
+      event_id: params.eventId ?? null,
+      event_inventory_requirement_id: params.eventInventoryRequirementId ?? null,
+      closeout_state_id: params.closeoutStateId ?? null,
+      origin_key: params.originKey ?? null,
+      note: params.note ?? null,
+      created_by: params.createdBy,
+      approved_by: params.approvedBy ?? null,
+      approved_at: params.approvedBy ? new Date().toISOString() : null,
+      is_posted: true,
+    })
+    .select('*')
+    .maybeSingle();
+
+  if (error || !inserted) return null;
+
+  await supabase
+    .from('inventory_items')
+    .update({
+      current_stock: nextStock,
+      updated_by: params.createdBy,
+    })
+    .eq('id', params.inventoryItemId);
+
+  await supabase
+    .from('inventory_stock_movements')
+    .update({
+      balance_after: nextStock,
+    })
+    .eq('id', inserted.id);
+
+  return {
+    ...(inserted as InventoryStockMovementRecord),
+    balance_after: nextStock,
+  } satisfies InventoryStockMovementRecord;
+}
+
+async function publishCloseoutMovements(params: {
+  requirementId: string;
+  eventId: string;
+  reviewerUserId: string;
+}) {
+  const requirement = await getEventInventoryRequirementById(params.eventId, params.requirementId);
+  if (!requirement) return;
+
+  const closeoutState = await getCloseoutStateByRequirementId(params.requirementId);
+  if (!closeoutState || closeoutState.closeout_status !== 'approved') return;
+
+  const returnedQuantity = Number(closeoutState.returned_quantity ?? 0);
+  const wasteQuantity = Number(closeoutState.waste_quantity ?? 0);
+
+  if (returnedQuantity > 0) {
+    await createInventoryStockMovement({
+      inventoryItemId: requirement.inventory_item_id,
+      movementType: 'returned_from_event',
+      quantityDelta: Number(returnedQuantity.toFixed(2)),
+      createdBy: params.reviewerUserId,
+      approvedBy: params.reviewerUserId,
+      eventId: params.eventId,
+      eventInventoryRequirementId: params.requirementId,
+      closeoutStateId: closeoutState.id,
+      referenceType: 'event_inventory_closeout',
+      referenceId: closeoutState.id,
+      originKey: `closeout:${closeoutState.id}:returned`,
+      note: 'Publicado automáticamente al aprobar closeout.',
+    });
+  }
+
+  if (wasteQuantity > 0) {
+    await createInventoryStockMovement({
+      inventoryItemId: requirement.inventory_item_id,
+      movementType: 'waste_loss',
+      quantityDelta: Number((-Math.abs(wasteQuantity)).toFixed(2)),
+      createdBy: params.reviewerUserId,
+      approvedBy: params.reviewerUserId,
+      eventId: params.eventId,
+      eventInventoryRequirementId: params.requirementId,
+      closeoutStateId: closeoutState.id,
+      referenceType: 'event_inventory_closeout',
+      referenceId: closeoutState.id,
+      originKey: `closeout:${closeoutState.id}:waste`,
+      note: 'Publicado automáticamente al aprobar closeout.',
+    });
+  }
+}
+
+export async function createInventoryRestockAction(formData: FormData) {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.manage')) return;
+
+  const inventoryItemId = String(formData.get('inventory_item_id') ?? '').trim();
+  const quantity = normalizeNonNegativeNumber(formData.get('quantity'));
+  const note = normalizeOptionalString(formData.get('note'));
+
+  if (!inventoryItemId || quantity == null || quantity <= 0) {
+    return;
+  }
+
+  const item = await getInventoryItemById(inventoryItemId);
+  if (!item || !item.is_active) return;
+
+  await createInventoryStockMovement({
+    inventoryItemId,
+    movementType: 'purchase_restock',
+    quantityDelta: Number(quantity.toFixed(2)),
+    createdBy: session.user.id,
+    approvedBy: session.user.id,
+    referenceType: 'inventory_manual_restock',
+    referenceId: null,
+    note: note ?? 'Restock manual desde inventario maestro.',
+  });
+
+  await revalidateInventoryPaths();
+}
+
+export async function createInventoryManualAdjustmentAction(formData: FormData) {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.manage')) return;
+
+  const inventoryItemId = String(formData.get('inventory_item_id') ?? '').trim();
+  const quantityDelta = normalizeSignedNumber(formData.get('quantity_delta'));
+  const note = normalizeOptionalString(formData.get('note'));
+
+  if (!inventoryItemId || quantityDelta == null || !note) {
+    return;
+  }
+
+  const item = await getInventoryItemById(inventoryItemId);
+  if (!item) return;
+
+  await createInventoryStockMovement({
+    inventoryItemId,
+    movementType: 'manual_adjustment',
+    quantityDelta: Number(quantityDelta.toFixed(2)),
+    createdBy: session.user.id,
+    approvedBy: session.user.id,
+    referenceType: 'inventory_manual_adjustment',
+    referenceId: null,
+    note,
+  });
+
+  await revalidateInventoryPaths();
 }
 
 export async function createInventoryItemAction(formData: FormData) {
@@ -318,6 +571,173 @@ export async function removeEventInventoryRequirementAction(eventId: string, req
   if (!event || !existingRequirement) return;
 
   await supabase.from('event_inventory_requirements').delete().eq('id', requirementId).eq('event_id', eventId);
+
+  await revalidateInventoryPaths(event.id);
+}
+
+export async function updateEventInventoryExecutionStateAction(
+  eventId: string,
+  requirementId: string,
+  track: 'shopping' | 'picking',
+  nextStatus: string,
+) {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.prepare') && !hasPermission(session.user, 'inventory.manage')) return;
+
+  const event = await getEventById(eventId);
+  const requirement = await getEventInventoryRequirementById(eventId, requirementId);
+  if (!event || !requirement) return;
+
+  const nowIso = new Date().toISOString();
+  const shoppingStatus = track === 'shopping' ? normalizeShoppingStatus(nextStatus) : null;
+  const pickingStatus = track === 'picking' ? normalizePickingStatus(nextStatus) : null;
+  if ((track === 'shopping' && !shoppingStatus) || (track === 'picking' && !pickingStatus)) return;
+
+  const { data: existingState } = await supabase
+    .from('event_inventory_execution_state')
+    .select('*')
+    .eq('event_inventory_requirement_id', requirementId)
+    .maybeSingle();
+
+  if (!existingState) {
+    await supabase.from('event_inventory_execution_state').insert({
+      event_inventory_requirement_id: requirementId,
+      shopping_status: shoppingStatus ?? 'pending',
+      shopping_updated_at: track === 'shopping' ? nowIso : null,
+      shopping_updated_by: track === 'shopping' ? session.user.id : null,
+      picking_status: pickingStatus ?? 'pending',
+      picking_updated_at: track === 'picking' ? nowIso : null,
+      picking_updated_by: track === 'picking' ? session.user.id : null,
+    });
+  } else {
+    if (track === 'shopping') {
+      await supabase
+        .from('event_inventory_execution_state')
+        .update({
+          shopping_status: shoppingStatus,
+          shopping_updated_at: nowIso,
+          shopping_updated_by: session.user.id,
+        })
+        .eq('event_inventory_requirement_id', requirementId);
+    } else {
+      await supabase
+        .from('event_inventory_execution_state')
+        .update({
+          picking_status: pickingStatus,
+          picking_updated_at: nowIso,
+          picking_updated_by: session.user.id,
+        })
+        .eq('event_inventory_requirement_id', requirementId);
+    }
+  }
+
+  await revalidateInventoryPaths(event.id);
+}
+
+export async function submitEventInventoryCloseoutAction(eventId: string, requirementId: string, formData: FormData) {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.prepare') && !hasPermission(session.user, 'inventory.manage')) return;
+
+  const event = await getEventById(eventId);
+  const requirement = await getEventInventoryRequirementById(eventId, requirementId);
+  if (!event || !requirement) return;
+
+  const quantityUsedInput = normalizeOptionalString(formData.get('quantity_used'));
+  const quantityUsed = quantityUsedInput == null ? null : normalizeNonNegativeNumber(quantityUsedInput);
+  const leftoverInput = normalizeOptionalString(formData.get('leftover_quantity'));
+  const returnedInput = normalizeOptionalString(formData.get('returned_quantity'));
+  const wasteInput = normalizeOptionalString(formData.get('waste_quantity'));
+  const note = normalizeOptionalString(formData.get('closeout_note'));
+  const leftoverQuantity = normalizeNonNegativeNumber(leftoverInput);
+  const returnedQuantity = normalizeNonNegativeNumber(returnedInput);
+  const wasteQuantity = normalizeNonNegativeNumber(wasteInput);
+
+  if (
+    quantityUsedInput != null && quantityUsed == null ||
+    leftoverQuantity == null ||
+    returnedQuantity == null ||
+    wasteQuantity == null ||
+    returnedQuantity > leftoverQuantity ||
+    wasteQuantity > leftoverQuantity ||
+    returnedQuantity + wasteQuantity > leftoverQuantity
+  ) {
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+
+  if (quantityUsed != null) {
+    await supabase
+      .from('event_inventory_requirements')
+      .update({
+        quantity_used: quantityUsed,
+        updated_by: session.user.id,
+      })
+      .eq('id', requirementId)
+      .eq('event_id', eventId);
+  }
+
+  const payload = {
+    event_inventory_requirement_id: requirementId,
+    leftover_quantity: leftoverQuantity,
+    returned_quantity: returnedQuantity,
+    waste_quantity: wasteQuantity,
+    closeout_status: 'submitted' as EventInventoryCloseoutStatus,
+    closed_by: session.user.id,
+    closed_at: nowIso,
+    note,
+  };
+
+  await supabase
+    .from('event_inventory_closeout_state')
+    .upsert(payload, { onConflict: 'event_inventory_requirement_id' });
+
+  await revalidateInventoryPaths(event.id);
+}
+
+export async function reviewEventInventoryCloseoutAction(
+  eventId: string,
+  requirementId: string,
+  nextStatus: 'approved' | 'reopened',
+) {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.manage')) return;
+
+  const event = await getEventById(eventId);
+  const requirement = await getEventInventoryRequirementById(eventId, requirementId);
+  const closeoutStatus = normalizeCloseoutStatus(nextStatus);
+  if (!event || !requirement || !closeoutStatus || (closeoutStatus !== 'approved' && closeoutStatus !== 'reopened')) return;
+
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from('event_inventory_closeout_state')
+    .upsert(
+      {
+        event_inventory_requirement_id: requirementId,
+        closeout_status: closeoutStatus,
+        reviewed_by: session.user.id,
+        reviewed_at: nowIso,
+      },
+      { onConflict: 'event_inventory_requirement_id' },
+    );
+
+  if (closeoutStatus === 'approved') {
+    await publishCloseoutMovements({
+      requirementId,
+      eventId: event.id,
+      reviewerUserId: session.user.id,
+    });
+  }
 
   await revalidateInventoryPaths(event.id);
 }

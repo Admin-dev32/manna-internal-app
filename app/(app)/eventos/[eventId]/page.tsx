@@ -28,7 +28,10 @@ export default async function EventDetailPage({ params }: { params: Promise<{ ev
     recurringTaskRules,
     inventoryItems,
     inventoryRequirements,
+    inventoryExecutionStateByRequirement,
+    inventoryCloseoutStateByRequirement,
     inventoryAvailabilityByItem,
+    inventoryRecentMovements,
     barMasterTemplates,
     barMasterTemplateApplications,
     applicableOperationalTemplates,
@@ -52,6 +55,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ ev
   const canViewChat = Boolean(session.user && hasPermission(session.user, 'chat.view'));
   const canViewInventory = Boolean(session.user && hasPermission(session.user, 'inventory.view'));
   const canPrepareInventory = Boolean(session.user && (hasPermission(session.user, 'inventory.prepare') || hasPermission(session.user, 'inventory.manage')));
+  const canApproveInventoryCloseout = Boolean(session.user && hasPermission(session.user, 'inventory.manage'));
   const canViewExpenses = Boolean(
     session.user &&
       (hasPermission(session.user, 'finance.expenses.view') || hasPermission(session.user, 'finance.expenses.manage') || hasPermission(session.user, 'finance.expenses.approve')),
@@ -78,9 +82,13 @@ export default async function EventDetailPage({ params }: { params: Promise<{ ev
       canViewChat={canViewChat}
       canViewInventory={canViewInventory}
       canPrepareInventory={canPrepareInventory}
+      canApproveInventoryCloseout={canApproveInventoryCloseout}
       inventoryItems={inventoryItems}
       inventoryRequirements={inventoryRequirements}
+      inventoryExecutionStateByRequirement={inventoryExecutionStateByRequirement}
+      inventoryCloseoutStateByRequirement={inventoryCloseoutStateByRequirement}
       inventoryAvailabilityByItem={inventoryAvailabilityByItem}
+      inventoryRecentMovements={inventoryRecentMovements}
       barMasterTemplates={barMasterTemplates}
       barMasterTemplateApplications={barMasterTemplateApplications}
       applicableOperationalTemplates={applicableOperationalTemplates}
