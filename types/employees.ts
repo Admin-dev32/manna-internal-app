@@ -1,4 +1,5 @@
-import type { EventAssignmentRole, EventAssignmentStatus, EventRecord } from '@/types/events';
+import type { EventAssignmentRole, EventAssignmentStatus, EventChecklistItemRecord, EventRecord } from '@/types/events';
+import type { EventInventoryCloseoutStateRecord, EventInventoryExecutionStateRecord, EventInventoryRequirementRecord, InventoryItemRecord } from '@/types/inventory';
 
 export type EmployeeReportStage =
   | 'llegada'
@@ -18,6 +19,37 @@ export interface EmployeeAssignedEvent {
   assignmentRole: EventAssignmentRole;
   assignmentStatus: EventAssignmentStatus;
   assignmentNote: string | null;
+}
+
+export interface TeamLeaderExecutionRequirement {
+  requirement: EventInventoryRequirementRecord;
+  item: InventoryItemRecord | null;
+  executionState: EventInventoryExecutionStateRecord | null;
+  closeoutState: EventInventoryCloseoutStateRecord | null;
+  quantityToBuy: number;
+  quantityToPull: number;
+}
+
+export interface TeamLeaderExecutionContext {
+  assignmentId: string;
+  event: EventRecord;
+  handoffStatus: 'draft' | 'ready_for_handoff' | 'handed_off';
+  handoffNote: string | null;
+  shoppingList: TeamLeaderExecutionRequirement[];
+  pickingList: TeamLeaderExecutionRequirement[];
+  checklistItems: EventChecklistItemRecord[];
+}
+
+export interface AssistantLightContext {
+  assignmentId: string;
+  event: EventRecord;
+  eventStatusLabel: string;
+  teamLeaderName: string | null;
+  teamLeaderAssignmentId: string | null;
+  handoffStatus: 'draft' | 'ready_for_handoff' | 'handed_off';
+  checklistItems: EventChecklistItemRecord[];
+  shoppingList: TeamLeaderExecutionRequirement[];
+  pickingList: TeamLeaderExecutionRequirement[];
 }
 
 export interface EmployeeEventReportRecord {

@@ -26,6 +26,7 @@ import {
 import {
   createEventStaffAssignmentAction,
   removeEventStaffAssignmentAction,
+  updateEventOperationalHandoffStateAction,
   syncEventToGoogleCalendarAction,
   updateEventOperationalNotesAction,
   updateEventStaffAssignmentAction,
@@ -36,7 +37,15 @@ import { validateEventCalendarRequirements } from '@/services/events/calendar';
 import type { EventCalendarSyncRecord } from '@/types/calendar';
 import type { ClientRecord } from '@/types/clients';
 import type { EmployeeEventReportRecord, EmployeeReportEvidenceRecord } from '@/types/employees';
-import type { EventChecklistItemRecord, EventChecklistProgress, EventFinanceSnapshot, EventRecord, EventStaffAssignmentRecord, EventTaskRecord } from '@/types/events';
+import type {
+  EventChecklistItemRecord,
+  EventChecklistProgress,
+  EventFinanceSnapshot,
+  EventOperationalHandoffStateRecord,
+  EventRecord,
+  EventStaffAssignmentRecord,
+  EventTaskRecord,
+} from '@/types/events';
 import type { RecurringTaskRuleRecord } from '@/types/recurring-tasks';
 import type { FinancialExpenseRecord } from '@/types/finance';
 import type {
@@ -117,6 +126,7 @@ export function EventDetail({
   canViewExpenses,
   eventExpenses,
   calendarSync,
+  handoffState,
   operationalHubStatus,
   operationalSignals,
   employeeReports,
@@ -171,6 +181,7 @@ export function EventDetail({
   canViewExpenses: boolean;
   eventExpenses: FinancialExpenseRecord[];
   calendarSync: EventCalendarSyncRecord | null;
+  handoffState: EventOperationalHandoffStateRecord | null;
   operationalHubStatus: EventOperationalHubStatus;
   operationalSignals: EventOperationalSignal[];
   employeeReports: EmployeeEventReportRecord[];
@@ -178,8 +189,11 @@ export function EventDetail({
   availabilityRows: Array<{ profile_id: string; reason: string; created_at: string; availability_status: string }>;
 }) {
   const allowedTransitions = EVENT_STATUS_TRANSITIONS[event.status];
-  const confirmedAssignments = assignments.filter((assignment) => assignment.assignment_status === 'confirmado').length;
+  const confirmedAssignments = assignments.filter((assignment) => assignment.assignment_status === 'confirmado' || assignment.assignment_status === 'accepted').length;
   const pendingAssignments = assignments.length - confirmedAssignments;
+  const supervisorResponsible = assignments.find((assignment) => assignment.is_supervisor_responsible);
+  const teamLeaderResponsible = assignments.find((assignment) => assignment.is_team_leader_responsible);
+  const assistantAssignments = assignments.filter((assignment) => assignment.assignment_role === 'assistant');
   const pendingReviewReports = employeeReports.filter((report) => report.review_status === 'pendiente_revision' || report.review_status === 'requiere_correccion').length;
   const bonusReleasedReports = employeeReports.filter((report) => report.review_status === 'bonus_liberado').length;
   const calendarRequirements = validateEventCalendarRequirements(event, client);
@@ -306,6 +320,10 @@ export function EventDetail({
                 <InfoItem icon={CheckCircle2} label="Confirmadas" value={confirmedAssignments.toString()} />
                 <InfoItem icon={Clock3} label="Pendientes" value={pendingAssignments.toString()} />
               </div>
+              <div className="rounded-2xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                Los roles operativos de evento (Supervisor, Team Leader, Assistant) no reemplazan permisos base del usuario.
+                Owner mantiene control fino mediante permission overrides en gestión de usuarios.
+              </div>
 
               {assignments.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
@@ -325,9 +343,11 @@ export function EventDetail({
                             <p className="font-semibold text-foreground">{assignedProfile?.full_name ?? 'Usuario interno'}</p>
                             <div className="flex flex-wrap gap-2">
                               <Badge>{EVENT_ASSIGNMENT_ROLE_LABELS[assignment.assignment_role]}</Badge>
-                              <Badge variant={assignment.assignment_status === 'confirmado' ? 'success' : 'warning'}>
+                              <Badge variant={assignment.assignment_status === 'confirmado' || assignment.assignment_status === 'accepted' ? 'success' : assignment.assignment_status === 'rejected' ? 'outline' : 'warning'}>
                                 {EVENT_ASSIGNMENT_STATUS_LABELS[assignment.assignment_status]}
                               </Badge>
+                              {assignment.is_supervisor_responsible ? <Badge variant="secondary">Supervisor responsable</Badge> : null}
+                              {assignment.is_team_leader_responsible ? <Badge variant="secondary">Team Leader principal</Badge> : null}
                               {assignedProfile?.role ? <Badge variant="outline">Perfil: {assignedProfile.role}</Badge> : null}
                             </div>
                           </div>
@@ -370,6 +390,16 @@ export function EventDetail({
                             </select>
                           </div>
 
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <input type="checkbox" name="is_supervisor_responsible" defaultChecked={assignment.is_supervisor_responsible} />
+                            Supervisor responsable
+                          </label>
+
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <input type="checkbox" name="is_team_leader_responsible" defaultChecked={assignment.is_team_leader_responsible} />
+                            Team Leader principal
+                          </label>
+
                           <div className="space-y-2">
                             <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Nota</label>
                             <Input name="note" defaultValue={assignment.note ?? ''} placeholder="Contexto breve de la asignación" />
@@ -387,6 +417,14 @@ export function EventDetail({
                           <span>Última actualización: <strong className="text-foreground">{updatedByProfile?.full_name ?? 'Usuario interno'}</strong></span>
                           <span>Creado: <strong className="text-foreground">{formatDateTime(assignment.created_at)}</strong></span>
                           <span>Editado: <strong className="text-foreground">{formatDateTime(assignment.updated_at)}</strong></span>
+                          {assignment.responded_at ? (
+                            <span className="md:col-span-2">
+                              Respuesta colaborador: <strong className="text-foreground">{EVENT_ASSIGNMENT_STATUS_LABELS[assignment.assignment_status]}</strong>
+                              {' · '}
+                              {formatDateTime(assignment.responded_at)}
+                              {assignment.response_note ? ` · ${assignment.response_note}` : ''}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                     );
@@ -432,11 +470,21 @@ export function EventDetail({
                       </select>
                     </div>
 
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input type="checkbox" name="is_supervisor_responsible" />
+                      Supervisor responsable
+                    </label>
+
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input type="checkbox" name="is_team_leader_responsible" />
+                      Team Leader principal
+                    </label>
+
                     <div className="space-y-2">
                       <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Estado</label>
                       <select
                         name="assignment_status"
-                        defaultValue="pendiente"
+                        defaultValue="pending_acceptance"
                         className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       >
                         {Object.entries(EVENT_ASSIGNMENT_STATUS_LABELS).map(([value, label]) => (
@@ -463,6 +511,48 @@ export function EventDetail({
                     No hay más perfiles internos disponibles para asignar en este evento.
                   </div>
                 )}
+              </div>
+
+              <div className="rounded-2xl border border-border bg-background p-4 text-sm">
+                <p className="font-semibold text-foreground">Responsables operativos del evento</p>
+                <p className="mt-2 text-muted-foreground">Supervisor: {supervisorResponsible ? (profiles[supervisorResponsible.profile_id]?.full_name ?? 'Usuario interno') : 'Sin definir'}</p>
+                <p className="text-muted-foreground">Team Leader principal: {teamLeaderResponsible ? (profiles[teamLeaderResponsible.profile_id]?.full_name ?? 'Usuario interno') : 'Sin definir'}</p>
+                <p className="text-muted-foreground">Assistants: {assistantAssignments.length > 0 ? assistantAssignments.map((item) => profiles[item.profile_id]?.full_name ?? 'Usuario interno').join(', ') : 'Sin assistants asignados'}</p>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-background p-4">
+                <p className="font-semibold text-foreground">Handoff supervisor → team leader</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Estado actual: {' '}
+                  <strong className="text-foreground">
+                    {handoffState?.handoff_status === 'ready_for_handoff'
+                      ? 'Listo para handoff'
+                      : handoffState?.handoff_status === 'handed_off'
+                        ? 'Handoff realizado'
+                        : 'Draft'}
+                  </strong>
+                </p>
+                <form action={updateEventOperationalHandoffStateAction.bind(null, event.id)} className="mt-3 grid gap-3 md:grid-cols-3">
+                  <select name="handoff_status" defaultValue={handoffState?.handoff_status ?? 'draft'} className="rounded-2xl border border-input bg-background px-4 py-2 text-sm">
+                    <option value="draft">Draft</option>
+                    <option value="ready_for_handoff">Listo para handoff</option>
+                    <option value="handed_off">Handoff realizado</option>
+                  </select>
+                  <select name="target_team_leader_assignment_id" defaultValue={handoffState?.target_team_leader_assignment_id ?? 'none'} className="rounded-2xl border border-input bg-background px-4 py-2 text-sm">
+                    <option value="none">Sin team leader objetivo</option>
+                    {assignments
+                      .filter((item) => item.assignment_role === 'team_leader' || item.is_team_leader_responsible)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {profiles[item.profile_id]?.full_name ?? item.profile_id}
+                        </option>
+                      ))}
+                  </select>
+                  <Input name="ready_note" defaultValue={handoffState?.ready_note ?? ''} placeholder="Nota de handoff (opcional)" />
+                  <div className="md:col-span-3 flex justify-end">
+                    <Button type="submit">Guardar handoff</Button>
+                  </div>
+                </form>
               </div>
             </CardContent>
           </Card>

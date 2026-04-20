@@ -12,6 +12,9 @@ export const EMPLOYEE_REPORT_STAGE_LABELS: Record<EmployeeReportStage, string> =
 };
 
 export const EMPLOYEE_ROLE_PROJECTION_MXN: Record<EventAssignmentRole, number> = {
+  supervisor: 1400,
+  team_leader: 1250,
+  assistant: 900,
   lider: 1200,
   apoyo: 900,
   setup: 850,

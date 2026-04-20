@@ -34,6 +34,7 @@ const iconMap = {
   chat: MessagesSquare,
   notificaciones: Bell,
   comunicacion: MessageSquareText,
+  tickets: BriefcaseBusiness,
   empleados: ShieldCheck,
   finanzas: WalletCards,
   inventario: Package,

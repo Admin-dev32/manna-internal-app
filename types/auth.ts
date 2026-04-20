@@ -14,6 +14,8 @@ export const PERMISSION_KEYS = [
   'chat.manage',
   'notifications.view',
   'communication.view',
+  'internal_tickets.create',
+  'internal_tickets.manage',
   'employees.view',
   'finance.view',
   'finance.manage_defaults',

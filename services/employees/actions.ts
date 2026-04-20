@@ -9,6 +9,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { EmployeeActionFormState } from '@/services/employees/form-state';
 import { getEmployeeAssignmentById } from '@/services/employees/queries';
 import type { EmployeeReportReviewStatus, EmployeeReportStage } from '@/types/employees';
+import type { EventInventoryCloseoutStatus } from '@/types/inventory';
 
 function normalizeOptionalString(value: FormDataEntryValue | null) {
   const normalized = String(value ?? '').trim();
@@ -30,6 +31,71 @@ function daysUntilEvent(eventDate: string) {
   return Math.floor((target.getTime() - today.getTime()) / 86_400_000);
 }
 
+async function getTeamLeaderExecutionAssignment(profileId: string, eventId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data } = await supabase
+    .from('event_staff_assignments')
+    .select('id, assignment_role, assignment_status, is_team_leader_responsible')
+    .eq('profile_id', profileId)
+    .eq('event_id', eventId)
+    .maybeSingle();
+
+  const assignment = data as {
+    id: string;
+    assignment_role: string;
+    assignment_status: string;
+    is_team_leader_responsible: boolean;
+  } | null;
+
+  if (!assignment) return null;
+  if (assignment.assignment_status !== 'accepted' && assignment.assignment_status !== 'confirmado') return null;
+
+  const isTeamLeaderContext =
+    assignment.assignment_role === 'team_leader' || assignment.assignment_role === 'lider' || assignment.is_team_leader_responsible;
+  return isTeamLeaderContext ? assignment : null;
+}
+
+async function getAssistantExecutionAssignment(profileId: string, eventId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data } = await supabase
+    .from('event_staff_assignments')
+    .select('id, assignment_role, assignment_status')
+    .eq('profile_id', profileId)
+    .eq('event_id', eventId)
+    .maybeSingle();
+
+  const assignment = data as {
+    id: string;
+    assignment_role: string;
+    assignment_status: string;
+  } | null;
+
+  if (!assignment) return null;
+  if (assignment.assignment_status !== 'accepted' && assignment.assignment_status !== 'confirmado') return null;
+
+  const isAssistantContext = assignment.assignment_role === 'assistant' || assignment.assignment_role === 'apoyo';
+  return isAssistantContext ? assignment : null;
+}
+
+function normalizeNonNegativeNumber(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return 0;
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric) || numeric < 0) return null;
+  return numeric;
+}
+
+function normalizeExecutionStatus(track: 'shopping' | 'picking', value: string) {
+  if (track === 'shopping') {
+    return value === 'pending' || value === 'bought' ? value : null;
+  }
+  return value === 'pending' || value === 'pulled' ? value : null;
+}
+
 export async function submitEmployeeEventReportAction(
   _previousState: EmployeeActionFormState,
   formData: FormData,
@@ -45,6 +111,9 @@ export async function submitEmployeeEventReportAction(
   const assignment = await getEmployeeAssignmentById(assignmentId, session.user.id);
   if (!assignment) {
     return { status: 'error', message: 'No encontramos una asignación válida para tu usuario.' };
+  }
+  if (assignment.assignmentStatus !== 'accepted' && assignment.assignmentStatus !== 'confirmado') {
+    return { status: 'error', message: 'Debes aceptar la asignación antes de enviar reportes de ejecución.' };
   }
 
   const reportStage = String(formData.get('report_stage') ?? 'actualizacion_general') as EmployeeReportStage;
@@ -164,6 +233,303 @@ export async function markEmployeeUnavailableAction(
 
   revalidatePath('/empleados' as Route);
   return { status: 'success', message: 'Aviso enviado. Operación lo revisará para reasignación.' };
+}
+
+export async function respondToEventAssignmentAction(
+  _previousState: EmployeeActionFormState,
+  formData: FormData,
+): Promise<EmployeeActionFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  }
+
+  const assignmentId = String(formData.get('assignment_id') ?? '');
+  const response = String(formData.get('response') ?? 'accepted');
+  const responseNote = normalizeOptionalString(formData.get('response_note'));
+  if (!assignmentId || (response !== 'accepted' && response !== 'rejected')) {
+    return { status: 'error', message: 'Respuesta de asignación inválida.' };
+  }
+
+  const assignment = await getEmployeeAssignmentById(assignmentId, session.user.id);
+  if (!assignment) {
+    return { status: 'error', message: 'No encontramos una asignación válida para tu usuario.' };
+  }
+
+  const { error } = await supabase
+    .from('event_staff_assignments')
+    .update({
+      assignment_status: response,
+      responded_by: session.user.id,
+      responded_at: new Date().toISOString(),
+      response_note: responseNote,
+      updated_by: session.user.id,
+    })
+    .eq('id', assignmentId)
+    .eq('profile_id', session.user.id);
+
+  if (error) {
+    return { status: 'error', message: 'No pudimos guardar tu respuesta de asignación.' };
+  }
+
+  if (response === 'accepted') {
+    const { data: handoffState } = await supabase
+      .from('event_operational_handoff_state')
+      .select('id, handoff_status, target_team_leader_assignment_id')
+      .eq('event_id', assignment.event.id)
+      .maybeSingle();
+
+    if (handoffState?.handoff_status === 'ready_for_handoff' && handoffState.target_team_leader_assignment_id === assignmentId) {
+      await supabase
+        .from('event_operational_handoff_state')
+        .update({
+          handoff_status: 'handed_off',
+        })
+        .eq('id', handoffState.id);
+    }
+  }
+
+  revalidatePath('/empleados' as Route);
+  revalidatePath('/eventos' as Route);
+  return {
+    status: 'success',
+    message: response === 'accepted' ? 'Asignación aceptada correctamente.' : 'Asignación rechazada. Operación revisará la reasignación.',
+  };
+}
+
+export async function updateTeamLeaderExecutionStateAction(
+  _previousState: EmployeeActionFormState,
+  formData: FormData,
+): Promise<EmployeeActionFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+
+  const eventId = String(formData.get('event_id') ?? '');
+  const requirementId = String(formData.get('requirement_id') ?? '');
+  const track = String(formData.get('track') ?? 'shopping') as 'shopping' | 'picking';
+  const nextStatusRaw = String(formData.get('next_status') ?? 'pending');
+  if (!eventId || !requirementId || (track !== 'shopping' && track !== 'picking')) {
+    return { status: 'error', message: 'Solicitud inválida para actualizar ejecución.' };
+  }
+
+  const assignment = await getTeamLeaderExecutionAssignment(session.user.id, eventId);
+  if (!assignment) {
+    return { status: 'error', message: 'Solo Team Leader asignado y aceptado puede actualizar esta ejecución.' };
+  }
+
+  const normalizedStatus = normalizeExecutionStatus(track, nextStatusRaw);
+  if (!normalizedStatus) {
+    return { status: 'error', message: 'Estado de ejecución inválido.' };
+  }
+
+  const { data: requirement } = await supabase
+    .from('event_inventory_requirements')
+    .select('id')
+    .eq('id', requirementId)
+    .eq('event_id', eventId)
+    .maybeSingle();
+  if (!requirement) {
+    return { status: 'error', message: 'No encontramos ese material en el evento.' };
+  }
+
+  const nowIso = new Date().toISOString();
+  const { data: executionState } = await supabase
+    .from('event_inventory_execution_state')
+    .select('id')
+    .eq('event_inventory_requirement_id', requirementId)
+    .maybeSingle();
+
+  if (!executionState) {
+    await supabase.from('event_inventory_execution_state').insert({
+      event_inventory_requirement_id: requirementId,
+      shopping_status: track === 'shopping' ? normalizedStatus : 'pending',
+      shopping_updated_at: track === 'shopping' ? nowIso : null,
+      shopping_updated_by: track === 'shopping' ? session.user.id : null,
+      picking_status: track === 'picking' ? normalizedStatus : 'pending',
+      picking_updated_at: track === 'picking' ? nowIso : null,
+      picking_updated_by: track === 'picking' ? session.user.id : null,
+      note: `Actualizado por Team Leader (${assignment.id}).`,
+    });
+  } else if (track === 'shopping') {
+    await supabase
+      .from('event_inventory_execution_state')
+      .update({
+        shopping_status: normalizedStatus,
+        shopping_updated_at: nowIso,
+        shopping_updated_by: session.user.id,
+      })
+      .eq('event_inventory_requirement_id', requirementId);
+  } else {
+    await supabase
+      .from('event_inventory_execution_state')
+      .update({
+        picking_status: normalizedStatus,
+        picking_updated_at: nowIso,
+        picking_updated_by: session.user.id,
+      })
+      .eq('event_inventory_requirement_id', requirementId);
+  }
+
+  revalidatePath('/empleados' as Route);
+  revalidatePath(`/eventos/${eventId}` as Route);
+  return { status: 'success', message: 'Ejecución actualizada.' };
+}
+
+export async function toggleTeamLeaderChecklistItemAction(
+  _previousState: EmployeeActionFormState,
+  formData: FormData,
+): Promise<EmployeeActionFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+
+  const eventId = String(formData.get('event_id') ?? '');
+  const checklistItemId = String(formData.get('checklist_item_id') ?? '');
+  const nextCompleted = String(formData.get('next_completed') ?? 'false') === 'true';
+
+  if (!eventId || !checklistItemId) {
+    return { status: 'error', message: 'Checklist inválida.' };
+  }
+
+  const assignment = await getTeamLeaderExecutionAssignment(session.user.id, eventId);
+  if (!assignment) {
+    return { status: 'error', message: 'Solo Team Leader asignado y aceptado puede editar checklist.' };
+  }
+
+  const { data: checklistItem } = await supabase
+    .from('event_checklist_items')
+    .select('id')
+    .eq('id', checklistItemId)
+    .eq('event_id', eventId)
+    .maybeSingle();
+
+  if (!checklistItem) {
+    return { status: 'error', message: 'No encontramos ese ítem de checklist.' };
+  }
+
+  await supabase
+    .from('event_checklist_items')
+    .update({
+      is_completed: nextCompleted,
+      completed_at: nextCompleted ? new Date().toISOString() : null,
+      updated_by: session.user.id,
+    })
+    .eq('id', checklistItemId);
+
+  revalidatePath('/empleados' as Route);
+  revalidatePath(`/eventos/${eventId}` as Route);
+  return { status: 'success', message: nextCompleted ? 'Checklist completada.' : 'Checklist reabierta.' };
+}
+
+export async function submitTeamLeaderCloseoutAction(
+  _previousState: EmployeeActionFormState,
+  formData: FormData,
+): Promise<EmployeeActionFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+
+  const eventId = String(formData.get('event_id') ?? '');
+  const requirementId = String(formData.get('requirement_id') ?? '');
+  if (!eventId || !requirementId) return { status: 'error', message: 'Closeout inválido.' };
+
+  const assignment = await getTeamLeaderExecutionAssignment(session.user.id, eventId);
+  if (!assignment) {
+    return { status: 'error', message: 'Solo Team Leader asignado y aceptado puede enviar closeout.' };
+  }
+
+  const quantityUsed = normalizeNonNegativeNumber(formData.get('quantity_used'));
+  const leftoverQuantity = normalizeNonNegativeNumber(formData.get('leftover_quantity'));
+  const returnedQuantity = normalizeNonNegativeNumber(formData.get('returned_quantity'));
+  const wasteQuantity = normalizeNonNegativeNumber(formData.get('waste_quantity'));
+  const note = normalizeOptionalString(formData.get('closeout_note'));
+
+  if (
+    quantityUsed == null ||
+    leftoverQuantity == null ||
+    returnedQuantity == null ||
+    wasteQuantity == null ||
+    returnedQuantity > leftoverQuantity ||
+    wasteQuantity > leftoverQuantity ||
+    returnedQuantity + wasteQuantity > leftoverQuantity
+  ) {
+    return { status: 'error', message: 'Revisa cantidades de closeout. Hay valores inválidos.' };
+  }
+
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from('event_inventory_requirements')
+    .update({
+      quantity_used: quantityUsed,
+      updated_by: session.user.id,
+    })
+    .eq('id', requirementId)
+    .eq('event_id', eventId);
+
+  await supabase
+    .from('event_inventory_closeout_state')
+    .upsert(
+      {
+        event_inventory_requirement_id: requirementId,
+        leftover_quantity: leftoverQuantity,
+        returned_quantity: returnedQuantity,
+        waste_quantity: wasteQuantity,
+        closeout_status: 'submitted' as EventInventoryCloseoutStatus,
+        closed_by: session.user.id,
+        closed_at: nowIso,
+        note,
+      },
+      { onConflict: 'event_inventory_requirement_id' },
+    );
+
+  revalidatePath('/empleados' as Route);
+  revalidatePath(`/eventos/${eventId}` as Route);
+  return { status: 'success', message: 'Closeout enviado para revisión de Supervisor/Owner.' };
+}
+
+export async function completeAssistantChecklistItemAction(
+  _previousState: EmployeeActionFormState,
+  formData: FormData,
+): Promise<EmployeeActionFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+
+  const eventId = String(formData.get('event_id') ?? '');
+  const checklistItemId = String(formData.get('checklist_item_id') ?? '');
+  if (!eventId || !checklistItemId) return { status: 'error', message: 'Checklist inválida.' };
+
+  const assignment = await getAssistantExecutionAssignment(session.user.id, eventId);
+  if (!assignment) {
+    return { status: 'error', message: 'Solo Assistant asignado y aceptado puede marcar su checklist de apoyo.' };
+  }
+
+  const { data: checklistItem } = await supabase
+    .from('event_checklist_items')
+    .select('id, is_completed')
+    .eq('id', checklistItemId)
+    .eq('event_id', eventId)
+    .maybeSingle();
+
+  if (!checklistItem) return { status: 'error', message: 'No encontramos ese ítem de checklist.' };
+  if (checklistItem.is_completed) return { status: 'success', message: 'Ese ítem ya estaba marcado como completado.' };
+
+  await supabase
+    .from('event_checklist_items')
+    .update({
+      is_completed: true,
+      completed_at: new Date().toISOString(),
+      updated_by: session.user.id,
+    })
+    .eq('id', checklistItemId);
+
+  revalidatePath('/empleados' as Route);
+  revalidatePath(`/eventos/${eventId}` as Route);
+  return { status: 'success', message: 'Checklist de apoyo marcada como completada.' };
 }
 
 export async function reviewEmployeeEventReportAction(

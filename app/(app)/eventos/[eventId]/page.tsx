@@ -41,6 +41,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ ev
     profiles,
     financeSummary,
     calendarSync,
+    handoffState,
     operationalHubStatus,
     operationalSignals,
     employeeReports,
@@ -101,6 +102,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ ev
       canViewExpenses={canViewExpenses}
       eventExpenses={eventExpenses}
       calendarSync={calendarSync}
+      handoffState={handoffState}
       operationalHubStatus={operationalHubStatus}
       operationalSignals={operationalSignals}
       employeeReports={employeeReports}

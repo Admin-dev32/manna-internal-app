@@ -50,6 +50,7 @@ export function EmployeeOperationsApp({
   recentReportEvidences,
   submitReportAction,
   markUnavailableAction,
+  respondAssignmentAction,
 }: {
   employeeName: string;
   todayAssignment: EmployeeAssignedEvent | null;
@@ -61,6 +62,7 @@ export function EmployeeOperationsApp({
   recentReportEvidences: Record<string, Array<EmployeeReportEvidenceRecord & { signed_url: string | null }>>;
   submitReportAction: (state: EmployeeActionFormState, formData: FormData) => Promise<EmployeeActionFormState>;
   markUnavailableAction: (state: EmployeeActionFormState, formData: FormData) => Promise<EmployeeActionFormState>;
+  respondAssignmentAction: (state: EmployeeActionFormState, formData: FormData) => Promise<EmployeeActionFormState>;
 }) {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 pb-10">
@@ -96,6 +98,7 @@ export function EmployeeOperationsApp({
           assignment={todayAssignment}
           submitAction={submitReportAction}
           unavailableAction={markUnavailableAction}
+          respondAssignmentAction={respondAssignmentAction}
         />
       ) : null}
 
@@ -114,7 +117,7 @@ export function EmployeeOperationsApp({
                 <p className="mt-1 text-sm text-muted-foreground">{assignment.event.booked_service} · {getLocationSummary(assignment.event.location)}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Badge>{EVENT_ASSIGNMENT_ROLE_LABELS[assignment.assignmentRole]}</Badge>
-                  <Badge variant={assignment.assignmentStatus === 'confirmado' ? 'success' : 'warning'}>
+                  <Badge variant={assignment.assignmentStatus === 'confirmado' || assignment.assignmentStatus === 'accepted' ? 'success' : assignment.assignmentStatus === 'rejected' ? 'outline' : 'warning'}>
                     {EVENT_ASSIGNMENT_STATUS_LABELS[assignment.assignmentStatus]}
                   </Badge>
                 </div>
@@ -125,6 +128,7 @@ export function EmployeeOperationsApp({
                     assignment={assignment}
                     submitAction={submitReportAction}
                     unavailableAction={markUnavailableAction}
+                    respondAssignmentAction={respondAssignmentAction}
                   />
                 </div>
               </div>
@@ -215,22 +219,48 @@ function EmployeeReportComposer({
   assignment,
   submitAction,
   unavailableAction,
+  respondAssignmentAction,
   compact = false,
 }: {
   title: string;
   assignment: EmployeeAssignedEvent;
   submitAction: (state: EmployeeActionFormState, formData: FormData) => Promise<EmployeeActionFormState>;
   unavailableAction: (state: EmployeeActionFormState, formData: FormData) => Promise<EmployeeActionFormState>;
+  respondAssignmentAction: (state: EmployeeActionFormState, formData: FormData) => Promise<EmployeeActionFormState>;
   compact?: boolean;
 }) {
   const [reportState, reportFormAction] = useActionState(submitAction, initialEmployeeActionFormState);
   const [unavailableState, unavailableFormAction] = useActionState(unavailableAction, initialEmployeeActionFormState);
+  const [responseState, responseFormAction] = useActionState(respondAssignmentAction, initialEmployeeActionFormState);
   const daysLeft = daysUntil(assignment.event.event_date);
   const cannotMarkUnavailable = daysLeft < EMPLOYEE_UNAVAILABLE_NOTICE_MIN_DAYS;
+  const isAcceptedAssignment = assignment.assignmentStatus === 'accepted' || assignment.assignmentStatus === 'confirmado';
+  const needsResponse = assignment.assignmentStatus === 'pending_acceptance' || assignment.assignmentStatus === 'pendiente';
 
   return (
     <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
       <p className="font-semibold">{title}</p>
+      {needsResponse ? (
+        <form action={responseFormAction} className="space-y-2 rounded-2xl border border-primary/20 bg-primary/5 p-3">
+          <input type="hidden" name="assignment_id" value={assignment.assignmentId} />
+          <p className="text-sm font-medium text-foreground">Confirma tu asignación</p>
+          <textarea
+            name="response_note"
+            rows={2}
+            className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
+            placeholder="Nota opcional para operación."
+          />
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" name="response" value="accepted" className="rounded-xl bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
+              Aceptar asignación
+            </button>
+            <button type="submit" name="response" value="rejected" className="rounded-xl border border-input bg-background px-3 py-2 text-sm">
+              Rechazar asignación
+            </button>
+          </div>
+          <AuthFeedback state={responseState} />
+        </form>
+      ) : null}
       <form action={reportFormAction} className="space-y-2">
         <input type="hidden" name="assignment_id" value={assignment.assignmentId} />
         <label className="text-sm">Módulo operativo</label>
@@ -243,10 +273,11 @@ function EmployeeReportComposer({
         <textarea name="service_notes" rows={compact ? 2 : 3} className="w-full rounded-xl border bg-background px-3 py-2 text-sm" placeholder="Información relevante del servicio." />
         <input name="evidence_files" type="file" multiple accept="image/*,application/pdf" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
         <p className="text-xs text-muted-foreground">Puedes subir múltiples fotos/evidencias directamente desde tu dispositivo.</p>
-        <Button type="submit" className="w-full sm:w-auto">
+        <Button type="submit" className="w-full sm:w-auto" disabled={!isAcceptedAssignment}>
           <Camera className="size-4" />
           Enviar reporte y evidencia
         </Button>
+        {!isAcceptedAssignment ? <p className="text-xs text-muted-foreground">Primero acepta tu asignación para habilitar reportes.</p> : null}
         <AuthFeedback state={reportState} />
       </form>
 
