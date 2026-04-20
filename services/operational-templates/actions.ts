@@ -471,7 +471,7 @@ export async function bootstrapOperationalTemplatesAction() {
         service_category: seed.serviceCategory,
         event_type: seed.serviceCategory,
         note: seed.note ?? null,
-        is_active: true,
+        is_active: false,
         created_by: session.user.id,
         updated_by: session.user.id,
       }, { onConflict: 'slug' })

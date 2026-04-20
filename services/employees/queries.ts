@@ -2,7 +2,9 @@ import { notFound } from 'next/navigation';
 
 import { EMPLOYEE_ROLE_PROJECTION_MXN } from '@/config/employees';
 import { EVENT_STATUS_LABELS } from '@/config/events';
+import { buildBarOperationalControls, buildMultiBarOperationalHandoffSummary } from '@/lib/bar-service-operational-controls';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getEventBarMasterTemplatePanelData } from '@/services/bar-master-templates/queries';
 import { getEventChecklistItems, getEventOperationalHandoffState } from '@/services/events/queries';
 import { getEventInventorySectionData } from '@/services/inventory/queries';
 import type { AssistantLightContext, EmployeeAssignedEvent, EmployeeEventReportRecord, EmployeeReportEvidenceRecord, TeamLeaderExecutionContext } from '@/types/employees';
@@ -170,10 +172,11 @@ export async function getTeamLeaderExecutionContext(profileId: string): Promise<
   if (eligibleAssignments.length === 0) return null;
 
   const assignment = eligibleAssignments.find((item) => item.event.event_date === today) ?? eligibleAssignments[0];
-  const [inventoryData, checklistItems, handoffState] = await Promise.all([
+  const [inventoryData, checklistItems, handoffState, barMasterPanel] = await Promise.all([
     getEventInventorySectionData(assignment.event.id),
     getEventChecklistItems(assignment.event.id),
     getEventOperationalHandoffState(assignment.event.id),
+    getEventBarMasterTemplatePanelData(assignment.event.id),
   ]);
 
   const itemById = new Map(inventoryData.inventoryItems.map((item) => [item.id, item]));
@@ -194,11 +197,103 @@ export async function getTeamLeaderExecutionContext(profileId: string): Promise<
     };
   });
 
+  const checklistProgress = {
+    total: checklistItems.length,
+    completed: checklistItems.filter((item) => item.is_completed).length,
+    pending: checklistItems.filter((item) => !item.is_completed).length,
+  };
+
+  const barServices = await Promise.all(
+    barMasterPanel.applications.map(async (application) => {
+      const templateFromPanel = barMasterPanel.templates.find((template) => template.id === application.template_id) ?? null;
+      const template = templateFromPanel ?? await (async () => {
+        const { data } = await supabase
+          .from('bar_master_templates')
+          .select('*')
+          .eq('id', application.template_id)
+          .maybeSingle();
+        return data;
+      })();
+      if (!template) return null;
+
+      const controls = buildBarOperationalControls({
+        selectedTemplate: template,
+        latestApplication: application,
+        requirements: inventoryData.requirements,
+        availabilityByItem: inventoryData.availabilityByItem,
+        executionStateByRequirement: inventoryData.executionStateByRequirement,
+        checklistProgress,
+      });
+      const approvedByName = application.approved_by
+        ? await (async () => {
+          const { data } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', application.approved_by)
+            .maybeSingle();
+          return data?.full_name ?? null;
+        })()
+        : null;
+      const summary = application.result_summary ?? {};
+
+      return {
+        applicationId: application.id,
+        templateId: template.id,
+        templateName: template.name,
+        prepGuide: template.prep_guide ?? null,
+        executionGuide: template.execution_guide ?? null,
+        checklistGuidance: template.checklist_guidance ?? null,
+        appliedAt: application.applied_at,
+        readinessLabel: controls?.readinessLabel ?? 'Incompleta',
+        readiness: controls?.readiness ?? 'incompleta',
+        checks: controls?.checks ?? [],
+        approvalStatus: application.approval_status ?? 'not_approved',
+        approvedByName,
+        approvedAt: application.approved_at ?? null,
+        approvalNote: application.approval_note ?? null,
+        summary: {
+          totalTemplateItems: Number(summary.total_template_items ?? 0),
+          linkedItemsCount: Number(summary.linked_items_count ?? 0),
+          scaledItemsCount: Number(summary.scaled_items_count ?? 0),
+          insertedCount: Number(summary.inserted_count ?? 0),
+          updatedCount: Number(summary.updated_count ?? 0),
+          skippedCount: Number(summary.skipped_without_inventory_link ?? 0),
+          omittedItems: Array.isArray(summary.omitted_items) ? summary.omitted_items.map((item) => String(item)) : [],
+        },
+      } satisfies TeamLeaderExecutionContext['barServices'][number];
+    }),
+  );
+  const resolvedBarServices = barServices.filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const barAggregate = {
+    total: resolvedBarServices.length,
+    approved: resolvedBarServices.filter((item) => item.approvalStatus === 'approved').length,
+    risk: resolvedBarServices.filter((item) => item.readiness === 'en_riesgo').length,
+    incomplete: resolvedBarServices.filter((item) => item.readiness === 'incompleta').length,
+    ready: resolvedBarServices.filter((item) => item.readiness === 'lista_para_ejecucion').length,
+  };
+  const handoffSnapshot = buildMultiBarOperationalHandoffSummary({
+    bars: resolvedBarServices.map((bar) => ({
+      templateName: bar.templateName,
+      approvalStatus: bar.approvalStatus,
+      readinessLabel: bar.readinessLabel,
+      checks: bar.checks,
+      summary: {
+        skippedCount: bar.summary.skippedCount,
+        scaledItemsCount: bar.summary.scaledItemsCount,
+        insertedCount: bar.summary.insertedCount,
+        updatedCount: bar.summary.updatedCount,
+      },
+    })),
+  });
+
   return {
     assignmentId: assignment.assignmentId,
     event: assignment.event,
     handoffStatus: handoffState?.handoff_status ?? 'draft',
     handoffNote: handoffState?.ready_note ?? null,
+    barServices: resolvedBarServices,
+    barAggregate,
+    handoffSnapshot,
     shoppingList: requirements.filter((row) => row.quantityToBuy > 0),
     pickingList: requirements.filter((row) => row.quantityToPull > 0),
     checklistItems,

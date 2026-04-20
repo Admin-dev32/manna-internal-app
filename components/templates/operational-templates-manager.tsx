@@ -58,7 +58,7 @@ export function OperationalTemplatesManager({
         </CardHeader>
         <CardContent>
           <form action={bootstrapOperationalTemplatesAction} className="mb-4">
-            <Button type="submit" variant="outline">Cargar plantillas iniciales de Manna Snack Bars</Button>
+            <Button type="submit" variant="outline">Cargar pack semilla opcional (no recomendado como base principal)</Button>
           </form>
           <form action={createOperationalTemplateAction} className="grid gap-4 xl:grid-cols-[1.1fr_1fr_auto]">
             <div className="space-y-2">

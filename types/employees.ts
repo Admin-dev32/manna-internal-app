@@ -35,6 +35,54 @@ export interface TeamLeaderExecutionContext {
   event: EventRecord;
   handoffStatus: 'draft' | 'ready_for_handoff' | 'handed_off';
   handoffNote: string | null;
+  barServices: Array<{
+    applicationId: string;
+    templateId: string;
+    templateName: string;
+    prepGuide: string | null;
+    executionGuide: string | null;
+    checklistGuidance: string | null;
+    appliedAt: string;
+    readinessLabel: string;
+    readiness: 'incompleta' | 'en_riesgo' | 'lista_para_ejecucion';
+    checks: Array<{
+      key: string;
+      label: string;
+      status: 'ok' | 'warning' | 'risk';
+      detail: string;
+    }>;
+    approvalStatus: 'not_approved' | 'approved';
+    approvedByName: string | null;
+    approvedAt: string | null;
+    approvalNote: string | null;
+    summary: {
+      totalTemplateItems: number;
+      linkedItemsCount: number;
+      scaledItemsCount: number;
+      insertedCount: number;
+      updatedCount: number;
+      skippedCount: number;
+      omittedItems: string[];
+    };
+  }>;
+  barAggregate: {
+    total: number;
+    approved: number;
+    risk: number;
+    incomplete: number;
+    ready: number;
+  };
+  handoffSnapshot: {
+    lines: string[];
+    text: string;
+    aggregate: {
+      total: number;
+      approved: number;
+      risk: number;
+      incomplete: number;
+      ready: number;
+    };
+  };
   shoppingList: TeamLeaderExecutionRequirement[];
   pickingList: TeamLeaderExecutionRequirement[];
   checklistItems: EventChecklistItemRecord[];

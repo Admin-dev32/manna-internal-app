@@ -34,6 +34,7 @@ import {
   toggleEventChecklistItemAction,
 } from '@/services/events/actions';
 import { validateEventCalendarRequirements } from '@/services/events/calendar';
+import { buildBarOperationalControls, buildMultiBarOperationalHandoffSummary } from '@/lib/bar-service-operational-controls';
 import type { EventCalendarSyncRecord } from '@/types/calendar';
 import type { ClientRecord } from '@/types/clients';
 import type { EmployeeEventReportRecord, EmployeeReportEvidenceRecord } from '@/types/employees';
@@ -198,6 +199,32 @@ export function EventDetail({
   const bonusReleasedReports = employeeReports.filter((report) => report.review_status === 'bonus_liberado').length;
   const calendarRequirements = validateEventCalendarRequirements(event, client);
   const calendarAction = syncEventToGoogleCalendarAction.bind(null, event.id);
+  const handoffBars = barMasterTemplateApplications.map((application) => {
+    const template = barMasterTemplates.find((item) => item.id === application.template_id) ?? null;
+    const controls = buildBarOperationalControls({
+      selectedTemplate: template,
+      latestApplication: application,
+      requirements: inventoryRequirements,
+      availabilityByItem: inventoryAvailabilityByItem,
+      executionStateByRequirement: inventoryExecutionStateByRequirement,
+      checklistProgress,
+    });
+    const summary = application.result_summary ?? {};
+
+    return {
+      templateName: String(summary.applied_template_name ?? '').trim() || template?.name || 'Barra sin nombre',
+      approvalStatus: application.approval_status,
+      readinessLabel: controls?.readinessLabel ?? 'Incompleta',
+      checks: controls?.checks ?? [],
+      summary: {
+        skippedCount: Number(summary.skipped_without_inventory_link ?? 0),
+        scaledItemsCount: Number(summary.scaled_items_count ?? 0),
+        insertedCount: Number(summary.inserted_count ?? 0),
+        updatedCount: Number(summary.updated_count ?? 0),
+      },
+    };
+  });
+  const handoffSnapshot = buildMultiBarOperationalHandoffSummary({ bars: handoffBars });
 
   return (
     <div className="flex flex-col gap-6">
@@ -532,6 +559,14 @@ export function EventDetail({
                         : 'Draft'}
                   </strong>
                 </p>
+                {handoffSnapshot.aggregate.total > 0 ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Estado barras aplicadas:{' '}
+                    <strong className="text-foreground">
+                      {handoffSnapshot.aggregate.approved}/{handoffSnapshot.aggregate.total} aprobadas · {handoffSnapshot.aggregate.ready} listas · {handoffSnapshot.aggregate.risk} en riesgo · {handoffSnapshot.aggregate.incomplete} incompletas
+                    </strong>
+                  </p>
+                ) : null}
                 <form action={updateEventOperationalHandoffStateAction.bind(null, event.id)} className="mt-3 grid gap-3 md:grid-cols-3">
                   <select name="handoff_status" defaultValue={handoffState?.handoff_status ?? 'draft'} className="rounded-2xl border border-input bg-background px-4 py-2 text-sm">
                     <option value="draft">Draft</option>
@@ -549,6 +584,10 @@ export function EventDetail({
                       ))}
                   </select>
                   <Input name="ready_note" defaultValue={handoffState?.ready_note ?? ''} placeholder="Nota de handoff (opcional)" />
+                  <div className="md:col-span-3 rounded-2xl border border-border bg-muted/20 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Snapshot sugerido por barra aplicada</p>
+                    <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">{handoffSnapshot.text}</pre>
+                  </div>
                   <div className="md:col-span-3 flex justify-end">
                     <Button type="submit">Guardar handoff</Button>
                   </div>
@@ -685,6 +724,7 @@ export function EventDetail({
               canApproveCloseout={canApproveInventoryCloseout}
               barMasterTemplates={barMasterTemplates}
               barMasterApplications={barMasterTemplateApplications}
+              checklistProgress={checklistProgress}
             />
           ) : null}
 

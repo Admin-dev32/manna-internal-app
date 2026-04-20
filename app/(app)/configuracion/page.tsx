@@ -109,14 +109,14 @@ export default async function ConfiguracionPage() {
                   <ClipboardList className="size-5" />
                 </div>
                 <div>
-                  <CardTitle>Plantillas operativas</CardTitle>
-                  <CardDescription>Checklist, tareas y materiales base por tipo de evento.</CardDescription>
+                  <CardTitle>Plantillas operativas (secundario)</CardTitle>
+                  <CardDescription>Checklist/tareas complementarias por tipo de evento.</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Úsalo para reducir trabajo repetitivo al preparar eventos y dejar una base operativa reutilizable.
+                Capa secundaria para soporte operativo. La definición principal manual de servicios/barras vive en la base de servicios.
               </p>
               <Button asChild>
                 <Link href="/configuracion/plantillas-operativas">Administrar plantillas</Link>
@@ -133,17 +133,17 @@ export default async function ConfiguracionPage() {
                   <ListChecks className="size-5" />
                 </div>
                 <div>
-                  <CardTitle>Listas maestras por barra</CardTitle>
-                  <CardDescription>Materiales reutilizables para sembrar requirements en eventos reales.</CardDescription>
+                  <CardTitle>Servicios/Barras (base principal)</CardTitle>
+                  <CardDescription>Definición manual del servicio con ítems conectados a inventario.</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Esta capa convive con plantillas operativas, enfocada solo en inventario reutilizable por barra.
+                Esta es la capa principal para personalizar manualmente cada barra/servicio sin depender de seeds automáticos.
               </p>
               <Button asChild>
-                <Link href="/configuracion/listas-maestras-inventario">Administrar listas maestras</Link>
+                <Link href="/configuracion/listas-maestras-inventario">Administrar servicios/barras</Link>
               </Button>
             </CardContent>
           </Card>

@@ -121,6 +121,10 @@ export interface BarMasterTemplateRecord {
   service_category: string | null;
   description: string | null;
   note: string | null;
+  prep_guide: string | null;
+  execution_guide: string | null;
+  checklist_guidance: string | null;
+  enforce_inventory_links: boolean;
   is_active: boolean;
   created_by: string;
   updated_by: string;
@@ -132,9 +136,13 @@ export interface BarMasterTemplateItemRecord {
   id: string;
   template_id: string;
   inventory_item_id: string | null;
+  item_type: 'ingrediente' | 'herramienta' | 'apoyo';
   item_name: string;
   unit: string | null;
   quantity_required: number;
+  base_servings: number | null;
+  scale_rounding_step: number | null;
+  is_optional: boolean;
   note: string | null;
   sort_order: number;
   is_active: boolean;
@@ -148,6 +156,10 @@ export interface BarMasterTemplateApplicationRecord {
   template_id: string;
   applied_by: string;
   applied_at: string;
+  approval_status: 'not_approved' | 'approved';
+  approved_by: string | null;
+  approved_at: string | null;
+  approval_note: string | null;
   note: string | null;
   result_summary: Record<string, unknown>;
 }

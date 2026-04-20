@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 import { CheckCircle2, Circle, ClipboardList, Package, ShoppingCart, Truck } from 'lucide-react';
 
@@ -37,8 +37,23 @@ export function TeamLeaderExecutionPanel({
   const [executionState, executionFormAction] = useActionState(updateExecutionAction, initialEmployeeActionFormState);
   const [checklistState, checklistFormAction] = useActionState(toggleChecklistAction, initialEmployeeActionFormState);
   const [closeoutState, closeoutFormAction] = useActionState(submitCloseoutAction, initialEmployeeActionFormState);
+  const [barFilter, setBarFilter] = useState<string>('all');
 
   const checklistDone = context.checklistItems.filter((item) => item.is_completed).length;
+  const filteredShoppingList = useMemo(
+    () => (barFilter === 'all' ? context.shoppingList : context.shoppingList.filter((row) => row.requirement.source_template_id === barFilter)),
+    [barFilter, context.shoppingList],
+  );
+  const filteredPickingList = useMemo(
+    () => (barFilter === 'all' ? context.pickingList : context.pickingList.filter((row) => row.requirement.source_template_id === barFilter)),
+    [barFilter, context.pickingList],
+  );
+  const filteredCloseoutRows = useMemo(
+    () => (barFilter === 'all'
+      ? [...context.shoppingList, ...context.pickingList]
+      : [...context.shoppingList, ...context.pickingList].filter((row) => row.requirement.source_template_id === barFilter)),
+    [barFilter, context.pickingList, context.shoppingList],
+  );
 
   return (
     <section className="space-y-4">
@@ -53,17 +68,62 @@ export function TeamLeaderExecutionPanel({
           <p className="text-muted-foreground">{context.event.location ?? 'Dirección pendiente'}</p>
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline">Servicio: {context.event.booked_service}</Badge>
+            <Badge variant="secondary">Barras aplicadas: {context.barAggregate.total}</Badge>
+            <Badge variant={context.barAggregate.risk > 0 ? 'warning' : 'success'}>En riesgo: {context.barAggregate.risk}</Badge>
+            <Badge variant={context.barAggregate.ready > 0 ? 'success' : 'outline'}>Listas: {context.barAggregate.ready}</Badge>
             <Badge variant={context.handoffStatus === 'handed_off' ? 'success' : context.handoffStatus === 'ready_for_handoff' ? 'secondary' : 'outline'}>
               Handoff: {context.handoffStatus === 'handed_off' ? 'Realizado' : context.handoffStatus === 'ready_for_handoff' ? 'Listo' : 'Draft'}
             </Badge>
           </div>
           {context.handoffNote ? <p className="text-xs text-muted-foreground">Nota handoff: {context.handoffNote}</p> : null}
+          {context.barServices.length > 0 ? (
+            <div className="rounded-2xl border border-primary/20 bg-background px-3 py-3 text-xs text-muted-foreground">
+              <p className="font-semibold text-foreground">Barras aplicadas · Vista multi-bar</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {context.barServices.map((bar) => (
+                  <button
+                    key={bar.applicationId}
+                    type="button"
+                    onClick={() => setBarFilter((current) => (current === bar.templateId ? 'all' : bar.templateId))}
+                    className="rounded-xl border border-border bg-muted/20 px-2 py-2 text-left"
+                  >
+                    <p className="font-medium text-foreground">{bar.templateName}</p>
+                    <p className="text-[11px]">
+                      Readiness: {bar.readinessLabel} · {bar.approvalStatus === 'approved' ? 'Aprobada' : 'No aprobada'}
+                    </p>
+                    <p className="text-[11px]">
+                      Riesgos/Pendientes: {bar.checks.filter((check) => check.status === 'risk').length} riesgo · {bar.checks.filter((check) => check.status === 'warning').length} pendiente
+                    </p>
+                    <p className="text-[11px]">
+                      Ítems: {bar.summary.totalTemplateItems} · Escalados: {bar.summary.scaledItemsCount} · Omitidos: {bar.summary.skippedCount} · Insertados: {bar.summary.insertedCount}
+                    </p>
+                    <p className="text-[11px]">
+                      Guías: Prep {bar.prepGuide?.trim() ? '✓' : '—'} · Ejecución {bar.executionGuide?.trim() ? '✓' : '—'} · Checklist {bar.checklistGuidance?.trim() ? '✓' : '—'}
+                    </p>
+                    <p className="text-[11px]">Aplicada: {new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(bar.appliedAt))}</p>
+                    <p className="text-[11px]">{bar.approvalNote ? `Nota: ${bar.approvalNote}` : 'Sin nota de aprobación'}</p>
+                    <p className="text-[11px] text-primary">{barFilter === bar.templateId ? 'Filtro activo en listas operativas' : 'Click para filtrar listas por esta barra'}</p>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Filtro actual: {barFilter === 'all' ? 'Todas las barras' : (context.barServices.find((bar) => bar.templateId === barFilter)?.templateName ?? 'Barra filtrada')}
+              </p>
+              <div className="mt-3 rounded-xl border border-border bg-muted/20 px-3 py-2">
+                <p className="font-medium text-foreground">Snapshot de handoff multi-bar</p>
+                <p className="mt-1 text-[11px]">
+                  Agregado: total {context.handoffSnapshot.aggregate.total} · aprobadas {context.handoffSnapshot.aggregate.approved} · listas {context.handoffSnapshot.aggregate.ready} · riesgo {context.handoffSnapshot.aggregate.risk} · incompletas {context.handoffSnapshot.aggregate.incomplete}
+                </p>
+                <pre className="mt-1 whitespace-pre-wrap text-[11px]">{context.handoffSnapshot.text}</pre>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <MiniStat icon={ShoppingCart} label="Compras" value={`${context.shoppingList.filter((r) => r.executionState?.shopping_status === 'bought').length}/${context.shoppingList.length}`} />
-        <MiniStat icon={Package} label="Surtido" value={`${context.pickingList.filter((r) => r.executionState?.picking_status === 'pulled').length}/${context.pickingList.length}`} />
+        <MiniStat icon={ShoppingCart} label="Compras" value={`${filteredShoppingList.filter((r) => r.executionState?.shopping_status === 'bought').length}/${filteredShoppingList.length}`} />
+        <MiniStat icon={Package} label="Surtido" value={`${filteredPickingList.filter((r) => r.executionState?.picking_status === 'pulled').length}/${filteredPickingList.length}`} />
         <MiniStat icon={ClipboardList} label="Checklist" value={`${checklistDone}/${context.checklistItems.length}`} />
       </div>
 
@@ -73,10 +133,10 @@ export function TeamLeaderExecutionPanel({
           <CardDescription>Material faltante por comprar para cubrir el evento.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {context.shoppingList.length === 0 ? (
+          {filteredShoppingList.length === 0 ? (
             <p className="rounded-2xl border border-dashed p-3 text-sm text-muted-foreground">Sin compras pendientes.</p>
           ) : (
-            context.shoppingList.map((row) => (
+            filteredShoppingList.map((row) => (
               <form key={`shopping-${row.requirement.id}`} action={executionFormAction} className="rounded-2xl border bg-background p-3">
                 <input type="hidden" name="event_id" value={context.event.id} />
                 <input type="hidden" name="requirement_id" value={row.requirement.id} />
@@ -104,10 +164,10 @@ export function TeamLeaderExecutionPanel({
           <CardDescription>Material a sacar de bodega/storage para montar barra(s).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {context.pickingList.length === 0 ? (
+          {filteredPickingList.length === 0 ? (
             <p className="rounded-2xl border border-dashed p-3 text-sm text-muted-foreground">Sin surtido pendiente.</p>
           ) : (
-            context.pickingList.map((row) => (
+            filteredPickingList.map((row) => (
               <form key={`picking-${row.requirement.id}`} action={executionFormAction} className="rounded-2xl border bg-background p-3">
                 <input type="hidden" name="event_id" value={context.event.id} />
                 <input type="hidden" name="requirement_id" value={row.requirement.id} />
@@ -159,10 +219,10 @@ export function TeamLeaderExecutionPanel({
           <CardDescription>Captura used / leftover / returned / waste para revisión administrativa (2C).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {context.pickingList.length === 0 && context.shoppingList.length === 0 ? (
+          {filteredPickingList.length === 0 && filteredShoppingList.length === 0 ? (
             <p className="rounded-2xl border border-dashed p-3 text-sm text-muted-foreground">Sin materiales ligados para closeout en este evento.</p>
           ) : (
-            [...context.shoppingList, ...context.pickingList]
+            filteredCloseoutRows
               .filter((row, idx, arr) => arr.findIndex((x) => x.requirement.id === row.requirement.id) === idx)
               .map((row) => (
                 <form key={`closeout-${row.requirement.id}`} action={closeoutFormAction} className="grid gap-2 rounded-2xl border bg-background p-3 md:grid-cols-5">

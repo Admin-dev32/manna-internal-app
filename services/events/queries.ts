@@ -298,6 +298,7 @@ export async function getEventDetailPageData(eventId: string) {
     ...inventorySection.recentMovements.map((movement) => movement.created_by),
     ...inventorySection.recentMovements.map((movement) => movement.approved_by),
     ...barMasterTemplateSection.applications.map((application) => application.applied_by),
+    ...barMasterTemplateSection.applications.map((application) => application.approved_by),
   ].filter((value): value is string => Boolean(value));
 
   const profiles = await getProfilesMap(profileIds);

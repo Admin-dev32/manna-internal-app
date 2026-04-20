@@ -1,11 +1,13 @@
 import { AlertTriangle, Archive, Boxes, CheckCircle2, ClipboardList, PackageCheck, ShieldAlert, ShoppingCart, Timer, Trash2, Warehouse } from 'lucide-react';
 
 import { INVENTORY_STATUS_LABELS } from '@/config/inventory';
+import { buildBarOperationalControls } from '@/lib/bar-service-operational-controls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { applyBarMasterTemplateToEventAction } from '@/services/bar-master-templates/actions';
+import { updateBarMasterTemplateApplicationApprovalAction } from '@/services/bar-master-templates/actions';
 import { createEventInventoryRequirementAction, removeEventInventoryRequirementAction, updateEventInventoryRequirementAction } from '@/services/inventory/actions';
 import { reviewEventInventoryCloseoutAction, submitEventInventoryCloseoutAction } from '@/services/inventory/actions';
 import { updateEventInventoryExecutionStateAction } from '@/services/inventory/actions';
@@ -97,6 +99,7 @@ export function EventInventorySection({
   canApproveCloseout,
   barMasterTemplates,
   barMasterApplications,
+  checklistProgress,
 }: {
   eventId: string;
   eventSummary: {
@@ -116,9 +119,13 @@ export function EventInventorySection({
   canApproveCloseout: boolean;
   barMasterTemplates: BarMasterTemplateRecord[];
   barMasterApplications: BarMasterTemplateApplicationRecord[];
+  checklistProgress: { total: number; completed: number; pending: number };
 }) {
   const linkedItemIds = new Set(requirements.map((requirement) => requirement.inventory_item_id));
   const availableItemsToLink = inventoryItems.filter((item) => !linkedItemIds.has(item.id));
+  const templateNameById = Object.fromEntries(
+    barMasterTemplates.map((template) => [template.id, template.name]),
+  ) as Record<string, string>;
 
   const operationalRows: OperationalRequirement[] = requirements.map((requirement) => {
     const item = inventoryItems.find((inventoryItem) => inventoryItem.id === requirement.inventory_item_id);
@@ -155,6 +162,51 @@ export function EventInventorySection({
   const recentTemplateNames = barMasterApplications
     .map((application) => String((application.result_summary?.applied_template_name as string | undefined) ?? '').trim())
     .filter(Boolean);
+  const templateById = Object.fromEntries(
+    barMasterTemplates.map((template) => [template.id, template]),
+  ) as Record<string, BarMasterTemplateRecord>;
+  const appliedBars = barMasterApplications.map((application) => {
+    const template = templateById[application.template_id] ?? null;
+    const controls = buildBarOperationalControls({
+      selectedTemplate: template,
+      latestApplication: application,
+      requirements,
+      availabilityByItem,
+      executionStateByRequirement,
+      checklistProgress,
+    });
+    const summary = application.result_summary ?? {};
+    const omittedItems = Array.isArray(summary.omitted_items)
+      ? summary.omitted_items.map((item) => String(item))
+      : [];
+    const approvalBy = application.approved_by ? profiles[application.approved_by] : null;
+    const appliedBy = profiles[application.applied_by] ?? null;
+
+    return {
+      application,
+      template,
+      controls,
+      summary: {
+        totalTemplateItems: Number(summary.total_template_items ?? 0),
+        linkedItemsCount: Number(summary.linked_items_count ?? 0),
+        scaledItemsCount: Number(summary.scaled_items_count ?? 0),
+        insertedCount: Number(summary.inserted_count ?? 0),
+        updatedCount: Number(summary.updated_count ?? 0),
+        skippedCount: Number(summary.skipped_without_inventory_link ?? 0),
+        omittedItems,
+        appliedTemplateName: String(summary.applied_template_name ?? '').trim() || template?.name || 'Barra sin nombre',
+      },
+      approvalBy,
+      appliedBy,
+    };
+  });
+  const appliedBarsAggregate = {
+    total: appliedBars.length,
+    approved: appliedBars.filter((row) => row.application.approval_status === 'approved').length,
+    risk: appliedBars.filter((row) => row.controls?.readiness === 'en_riesgo').length,
+    incomplete: appliedBars.filter((row) => row.controls?.readiness === 'incompleta').length,
+    ready: appliedBars.filter((row) => row.controls?.readiness === 'lista_para_ejecucion').length,
+  };
 
   const checklistCards = [
     {
@@ -529,6 +581,13 @@ export function EventInventorySection({
                         <p className="text-xs text-muted-foreground">
                           Compra: <strong className="text-foreground">{executionState?.shopping_status === 'bought' ? 'Comprado' : 'Pendiente'}</strong> · Surtido: <strong className="text-foreground">{executionState?.picking_status === 'pulled' ? 'Surtido' : 'Pendiente'}</strong>
                         </p>
+                        {requirement.source_type === 'template' ? (
+                          <p className="text-xs text-muted-foreground">
+                            Origen del paquete: {requirement.source_template_id ? (templateNameById[requirement.source_template_id] ?? `Template ${requirement.source_template_id.slice(0, 8)}`) : 'Plantilla sin id'}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">Origen del paquete: Ajuste manual del evento</p>
+                        )}
                         {item?.usage_bars ? <p className="text-xs text-muted-foreground">Uso en barras/servicios: {item.usage_bars}</p> : null}
                         {requirement.checked_at ? (
                           <p className="text-xs text-muted-foreground">
@@ -630,28 +689,158 @@ export function EventInventorySection({
         )}
 
         <div className="rounded-3xl border border-border bg-muted/30 p-4">
-          <h3 className="text-sm font-semibold text-foreground">Aplicar lista maestra por barra</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Siembra materiales base al evento y consolida cantidades sin duplicar requirements existentes.</p>
+          <h3 className="text-sm font-semibold text-foreground">Barras/servicios aplicados al evento</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Modelo de lectura multi-bar para supervisor: cada barra aplicada conserva su readiness, aprobación, guías y resultado operativo.</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-5">
+            <div className="rounded-2xl border border-border bg-background px-3 py-2 text-xs">
+              <p className="text-muted-foreground">Barras aplicadas</p>
+              <p className="text-base font-semibold text-foreground">{appliedBarsAggregate.total}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background px-3 py-2 text-xs">
+              <p className="text-muted-foreground">Aprobadas</p>
+              <p className="text-base font-semibold text-foreground">{appliedBarsAggregate.approved}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background px-3 py-2 text-xs">
+              <p className="text-muted-foreground">En riesgo</p>
+              <p className="text-base font-semibold text-foreground">{appliedBarsAggregate.risk}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background px-3 py-2 text-xs">
+              <p className="text-muted-foreground">Incompletas</p>
+              <p className="text-base font-semibold text-foreground">{appliedBarsAggregate.incomplete}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background px-3 py-2 text-xs">
+              <p className="text-muted-foreground">Listas para ejecución</p>
+              <p className="text-base font-semibold text-foreground">{appliedBarsAggregate.ready}</p>
+            </div>
+          </div>
           {barMasterTemplates.length === 0 ? (
             <div className="mt-3 rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
               No hay listas maestras activas para aplicar.
             </div>
           ) : (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {barMasterTemplates.slice(0, 6).map((template) => (
-                <form key={template.id} action={applyBarMasterTemplateToEventAction.bind(null, eventId, template.id)}>
-                  <Button type="submit" variant="outline" disabled={!canPrepareInventory}>
-                    Aplicar: {template.name}
-                  </Button>
-                </form>
-              ))}
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              {barMasterTemplates.map((template) => {
+                const templateItems = requirements.filter((requirement) => requirement.source_template_id === template.id);
+                const latestForTemplate = appliedBars.find((row) => row.application.template_id === template.id) ?? null;
+
+                return (
+                  <div key={template.id} className="rounded-2xl border border-border bg-background p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-foreground">{template.name}</p>
+                        <p className="text-xs text-muted-foreground">{template.service_category ?? 'Sin categoría'} · {templateItems.length} requirement(s) activos en evento</p>
+                      </div>
+                      {latestForTemplate?.controls
+                        ? <Badge variant={latestForTemplate.controls.readiness === 'lista_para_ejecucion' ? 'success' : latestForTemplate.controls.readiness === 'en_riesgo' ? 'warning' : 'secondary'}>{latestForTemplate.controls.readinessLabel}</Badge>
+                        : <Badge variant="outline">Disponible</Badge>}
+                    </div>
+                    <form className="mt-3" action={applyBarMasterTemplateToEventAction.bind(null, eventId, template.id)}>
+                      <Button type="submit" variant={latestForTemplate ? 'secondary' : 'outline'} disabled={!canPrepareInventory} className="w-full">
+                        {latestForTemplate ? 'Aplicar nuevamente esta barra' : 'Aplicar barra al evento'}
+                      </Button>
+                    </form>
+                  </div>
+                );
+              })}
             </div>
           )}
-          {barMasterApplications.length > 0 ? (
-            <div className="mt-3 rounded-2xl border border-border bg-background px-4 py-3 text-xs text-muted-foreground">
-              Últimas aplicaciones: {barMasterApplications.slice(0, 3).map((application) => new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(application.applied_at))).join(' · ')}
+          {appliedBars.length > 0 ? (
+            <div className="mt-3 space-y-3">
+              {appliedBars.map((row) => {
+                const readinessVariant = row.controls?.readiness === 'lista_para_ejecucion'
+                  ? 'success'
+                  : row.controls?.readiness === 'en_riesgo'
+                    ? 'warning'
+                    : 'secondary';
+                const approvalStatus = row.application.approval_status;
+                const approvalVariant = approvalStatus === 'approved' ? 'success' : 'outline';
+                const appliedAtLabel = new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(row.application.applied_at));
+                return (
+                  <div key={row.application.id} className="rounded-2xl border border-border bg-background px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">{row.summary.appliedTemplateName}</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={approvalVariant}>{approvalStatus === 'approved' ? 'Aprobada para ejecución' : 'No aprobada'}</Badge>
+                        {row.controls ? <Badge variant={readinessVariant}>{row.controls.readinessLabel}</Badge> : null}
+                      </div>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Aplicada: {appliedAtLabel}
+                      {row.appliedBy ? ` · por ${row.appliedBy.full_name ?? 'usuario interno'}` : ''}
+                    </p>
+                    {row.application.approved_at ? (
+                      <p className="text-xs text-muted-foreground">
+                        Aprobación: {new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(row.application.approved_at))}
+                        {row.approvalBy ? ` · por ${row.approvalBy.full_name ?? 'usuario interno'}` : ''}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Ítems plantilla: {row.summary.totalTemplateItems} · Vinculados: {row.summary.linkedItemsCount} · Escalados por invitados: {row.summary.scaledItemsCount} · Insertados: {row.summary.insertedCount} · Consolidaron: {row.summary.updatedCount} · Omitidos: {row.summary.skippedCount}
+                    </p>
+                    {row.summary.omittedItems.length > 0 ? (
+                      <p className="mt-1 text-xs text-muted-foreground">Omitidos: {row.summary.omittedItems.join(' · ')}</p>
+                    ) : null}
+                    {row.controls ? (
+                      <div className="mt-2 grid gap-2 md:grid-cols-2">
+                        {row.controls.checks.map((check) => (
+                          <div key={`${row.application.id}-${check.key}`} className="rounded-xl border border-border bg-muted/20 px-3 py-2 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-medium text-foreground">{check.label}</p>
+                              <Badge variant={check.status === 'ok' ? 'success' : check.status === 'risk' ? 'warning' : 'secondary'}>
+                                {check.status === 'ok' ? 'OK' : check.status === 'risk' ? 'Riesgo' : 'Pendiente'}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 text-muted-foreground">{check.detail}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="mt-2 grid gap-2 md:grid-cols-3">
+                      <div className="rounded-xl border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground md:col-span-3">
+                        <strong className="text-foreground">Guías:</strong>{' '}
+                        Prep: {row.template?.prep_guide?.trim() || 'Sin prep'} ·
+                        Ejecución: {row.template?.execution_guide?.trim() || 'Sin ejecución'} ·
+                        Checklist: {row.template?.checklist_guidance?.trim() || 'Sin checklist'}
+                      </div>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {row.controls?.readiness === 'en_riesgo'
+                        ? 'Advertencia fuerte: barra en riesgo. Se recomienda resolver riesgos antes de aprobar.'
+                        : row.controls?.readiness === 'incompleta'
+                          ? 'Advertencia: barra incompleta. Recomendado completar pendientes antes de aprobar.'
+                          : 'Barra lista para ejecución: aprobación recomendada.'}
+                    </p>
+                    <form action={updateBarMasterTemplateApplicationApprovalAction.bind(null, eventId, row.application.id)} className="mt-2 grid gap-3 md:grid-cols-[1fr_auto]">
+                      <Input
+                        name="approval_note"
+                        defaultValue={row.application.approval_note ?? ''}
+                        placeholder="Nota opcional de aprobación/reapertura"
+                        disabled={!canPrepareInventory}
+                      />
+                      <input type="hidden" name="approval_status" value="approved" />
+                      <Button type="submit" disabled={!canPrepareInventory} variant={approvalStatus === 'approved' ? 'outline' : 'default'}>
+                        {approvalStatus === 'approved' ? 'Actualizar aprobación' : 'Aprobar para ejecución'}
+                      </Button>
+                    </form>
+                    <form action={updateBarMasterTemplateApplicationApprovalAction.bind(null, eventId, row.application.id)} className="mt-2">
+                      <input type="hidden" name="approval_status" value="not_approved" />
+                      <input type="hidden" name="approval_note" value={row.application.approval_note ?? ''} />
+                      <Button type="submit" disabled={!canPrepareInventory} variant="secondary">
+                        Reabrir / quitar aprobación
+                      </Button>
+                    </form>
+                    {row.application.approval_note ? (
+                      <p className="mt-2 text-xs text-muted-foreground">Nota actual: {row.application.approval_note}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
-          ) : null}
+          ) : (
+            <div className="mt-3 rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+              Este evento aún no tiene barras aplicadas.
+            </div>
+          )}
         </div>
 
         <div className="rounded-3xl border border-border bg-muted/30 p-4">
