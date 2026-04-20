@@ -72,6 +72,9 @@ export const EVENT_CHECKLIST_TEMPLATE: EventChecklistTemplateItem[] = [
 ];
 
 export const EVENT_ASSIGNMENT_ROLE_LABELS: Record<EventAssignmentRole, string> = {
+  supervisor: 'Supervisor',
+  team_leader: 'Team Leader',
+  assistant: 'Asistente',
   lider: 'Líder',
   apoyo: 'Apoyo',
   setup: 'Setup',
@@ -80,7 +83,10 @@ export const EVENT_ASSIGNMENT_ROLE_LABELS: Record<EventAssignmentRole, string> =
 
 export const EVENT_ASSIGNMENT_STATUS_LABELS: Record<EventAssignmentStatus, string> = {
   pendiente: 'Pendiente',
+  pending_acceptance: 'Pendiente de aceptación',
   confirmado: 'Confirmado',
+  accepted: 'Aceptado',
+  rejected: 'Rechazado',
 };
 
 export const EVENT_TASK_STATUS_LABELS: Record<EventTaskStatus, string> = {

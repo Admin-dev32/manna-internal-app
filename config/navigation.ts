@@ -11,6 +11,7 @@ export type NavigationIconKey =
   | 'chat'
   | 'notificaciones'
   | 'comunicacion'
+  | 'tickets'
   | 'empleados'
   | 'finanzas'
   | 'inventario'
@@ -120,6 +121,14 @@ export const navigationItems: NavigationItem[] = [
     icon: 'comunicacion',
     permission: 'communication.view',
     matchPrefixes: ['/comunicacion'],
+  },
+  {
+    href: '/oficina-solicitudes',
+    label: 'Main office',
+    description: 'Inbox de tickets/solicitudes internas del equipo.',
+    icon: 'tickets',
+    permission: 'internal_tickets.manage',
+    matchPrefixes: ['/oficina-solicitudes'],
   },
   {
     href: '/inventario',

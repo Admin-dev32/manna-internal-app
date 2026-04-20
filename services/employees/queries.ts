@@ -1,8 +1,11 @@
 import { notFound } from 'next/navigation';
 
 import { EMPLOYEE_ROLE_PROJECTION_MXN } from '@/config/employees';
+import { EVENT_STATUS_LABELS } from '@/config/events';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import type { EmployeeAssignedEvent, EmployeeEventReportRecord, EmployeeReportEvidenceRecord } from '@/types/employees';
+import { getEventChecklistItems, getEventOperationalHandoffState } from '@/services/events/queries';
+import { getEventInventorySectionData } from '@/services/inventory/queries';
+import type { AssistantLightContext, EmployeeAssignedEvent, EmployeeEventReportRecord, EmployeeReportEvidenceRecord, TeamLeaderExecutionContext } from '@/types/employees';
 import type { EventRecord } from '@/types/events';
 
 function getTodayIsoDate() {
@@ -58,6 +61,8 @@ export async function getEmployeeAppPageData(profileId: string) {
 
   const projectedTotalMxn = assignments.reduce((sum, item) => sum + EMPLOYEE_ROLE_PROJECTION_MXN[item.assignmentRole], 0);
   const projectedTodayMxn = todayAssignment ? EMPLOYEE_ROLE_PROJECTION_MXN[todayAssignment.assignmentRole] : 0;
+  const teamLeaderExecution = await getTeamLeaderExecutionContext(profileId);
+  const assistantLight = await getAssistantLightContext(profileId);
 
   const supabase = await createSupabaseServerClient();
   if (!supabase) {
@@ -69,6 +74,8 @@ export async function getEmployeeAppPageData(profileId: string) {
       releasedBonusMxn: 0,
       recentReports: [] as EmployeeEventReportRecord[],
       recentReportEvidences: {} as Record<string, Array<EmployeeReportEvidenceRecord & { signed_url: string | null }>>,
+      teamLeaderExecution,
+      assistantLight,
     };
   }
 
@@ -115,6 +122,179 @@ export async function getEmployeeAppPageData(profileId: string) {
     releasedBonusMxn,
     recentReports: recentReportRows,
     recentReportEvidences,
+    teamLeaderExecution,
+    assistantLight,
+  };
+}
+
+export async function getTeamLeaderExecutionContext(profileId: string): Promise<TeamLeaderExecutionContext | null> {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const today = getTodayIsoDate();
+  const { data } = await supabase
+    .from('event_staff_assignments')
+    .select('id, event_id, assignment_role, assignment_status, is_team_leader_responsible, events!inner(*)')
+    .eq('profile_id', profileId)
+    .in('assignment_status', ['accepted', 'confirmado'])
+    .neq('events.status', 'cancelado')
+    .gte('events.event_date', today)
+    .order('event_date', { referencedTable: 'events', ascending: true })
+    .order('event_time', { referencedTable: 'events', ascending: true })
+    .limit(12);
+
+  const rows = (data ?? []) as Array<{
+    id: string;
+    event_id: string;
+    assignment_role: EmployeeAssignedEvent['assignmentRole'];
+    assignment_status: EmployeeAssignedEvent['assignmentStatus'];
+    is_team_leader_responsible: boolean;
+    events: EventRecord | EventRecord[];
+  }>;
+
+  const eligibleAssignments = rows
+    .map((row) => {
+      const event = Array.isArray(row.events) ? row.events[0] : row.events;
+      if (!event) return null;
+      const isTeamLeaderContext =
+        row.assignment_role === 'team_leader' || row.assignment_role === 'lider' || row.is_team_leader_responsible;
+      if (!isTeamLeaderContext) return null;
+
+      return {
+        assignmentId: row.id,
+        event,
+      };
+    })
+    .filter(Boolean) as Array<{ assignmentId: string; event: EventRecord }>;
+
+  if (eligibleAssignments.length === 0) return null;
+
+  const assignment = eligibleAssignments.find((item) => item.event.event_date === today) ?? eligibleAssignments[0];
+  const [inventoryData, checklistItems, handoffState] = await Promise.all([
+    getEventInventorySectionData(assignment.event.id),
+    getEventChecklistItems(assignment.event.id),
+    getEventOperationalHandoffState(assignment.event.id),
+  ]);
+
+  const itemById = new Map(inventoryData.inventoryItems.map((item) => [item.id, item]));
+  const requirements = inventoryData.requirements.map((requirement) => {
+    const item = itemById.get(requirement.inventory_item_id) ?? null;
+    const availableStock = Math.max(Number(inventoryData.availabilityByItem[requirement.inventory_item_id]?.availableStock ?? 0), 0);
+    const requiredQuantity = Number(requirement.quantity_required ?? 0);
+    const quantityToBuy = Math.max(requiredQuantity - availableStock, 0);
+    const quantityToPull = Math.max(Math.min(requiredQuantity, availableStock), 0);
+
+    return {
+      requirement,
+      item,
+      executionState: inventoryData.executionStateByRequirement[requirement.id] ?? null,
+      closeoutState: inventoryData.closeoutStateByRequirement[requirement.id] ?? null,
+      quantityToBuy,
+      quantityToPull,
+    };
+  });
+
+  return {
+    assignmentId: assignment.assignmentId,
+    event: assignment.event,
+    handoffStatus: handoffState?.handoff_status ?? 'draft',
+    handoffNote: handoffState?.ready_note ?? null,
+    shoppingList: requirements.filter((row) => row.quantityToBuy > 0),
+    pickingList: requirements.filter((row) => row.quantityToPull > 0),
+    checklistItems,
+  };
+}
+
+export async function getAssistantLightContext(profileId: string): Promise<AssistantLightContext | null> {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const today = getTodayIsoDate();
+  const { data } = await supabase
+    .from('event_staff_assignments')
+    .select('id, event_id, assignment_role, assignment_status, events!inner(*)')
+    .eq('profile_id', profileId)
+    .in('assignment_status', ['accepted', 'confirmado'])
+    .in('assignment_role', ['assistant', 'apoyo'])
+    .neq('events.status', 'cancelado')
+    .gte('events.event_date', today)
+    .order('event_date', { referencedTable: 'events', ascending: true })
+    .order('event_time', { referencedTable: 'events', ascending: true })
+    .limit(8);
+
+  const rows = (data ?? []) as Array<{
+    id: string;
+    event_id: string;
+    assignment_role: EmployeeAssignedEvent['assignmentRole'];
+    assignment_status: EmployeeAssignedEvent['assignmentStatus'];
+    events: EventRecord | EventRecord[];
+  }>;
+
+  if (rows.length === 0) return null;
+  const mapped = rows
+    .map((row) => {
+      const event = Array.isArray(row.events) ? row.events[0] : row.events;
+      if (!event) return null;
+      return { assignmentId: row.id, event };
+    })
+    .filter(Boolean) as Array<{ assignmentId: string; event: EventRecord }>;
+  if (mapped.length === 0) return null;
+
+  const assignment = mapped.find((item) => item.event.event_date === today) ?? mapped[0];
+
+  const [inventoryData, checklistItems, handoffState, teamLeaderLookup] = await Promise.all([
+    getEventInventorySectionData(assignment.event.id),
+    getEventChecklistItems(assignment.event.id),
+    getEventOperationalHandoffState(assignment.event.id),
+    supabase
+      .from('event_staff_assignments')
+      .select('id, profile_id, is_team_leader_responsible, assignment_role, profiles!inner(full_name)')
+      .eq('event_id', assignment.event.id)
+      .in('assignment_status', ['accepted', 'confirmado']),
+  ]);
+
+  const teamLeaderRows = (teamLeaderLookup.data ?? []) as Array<{
+    id: string;
+    profile_id: string;
+    is_team_leader_responsible: boolean;
+    assignment_role: string;
+    profiles: { full_name: string | null } | Array<{ full_name: string | null }>;
+  }>;
+  const responsibleTeamLeader = teamLeaderRows.find((row) => row.is_team_leader_responsible)
+    ?? teamLeaderRows.find((row) => row.assignment_role === 'team_leader' || row.assignment_role === 'lider')
+    ?? null;
+  const teamLeaderProfile = responsibleTeamLeader
+    ? (Array.isArray(responsibleTeamLeader.profiles) ? responsibleTeamLeader.profiles[0] : responsibleTeamLeader.profiles)
+    : null;
+
+  const itemById = new Map(inventoryData.inventoryItems.map((item) => [item.id, item]));
+  const requirements = inventoryData.requirements.map((requirement) => {
+    const item = itemById.get(requirement.inventory_item_id) ?? null;
+    const availableStock = Math.max(Number(inventoryData.availabilityByItem[requirement.inventory_item_id]?.availableStock ?? 0), 0);
+    const requiredQuantity = Number(requirement.quantity_required ?? 0);
+    const quantityToBuy = Math.max(requiredQuantity - availableStock, 0);
+    const quantityToPull = Math.max(Math.min(requiredQuantity, availableStock), 0);
+
+    return {
+      requirement,
+      item,
+      executionState: inventoryData.executionStateByRequirement[requirement.id] ?? null,
+      closeoutState: inventoryData.closeoutStateByRequirement[requirement.id] ?? null,
+      quantityToBuy,
+      quantityToPull,
+    };
+  });
+
+  return {
+    assignmentId: assignment.assignmentId,
+    event: assignment.event,
+    eventStatusLabel: EVENT_STATUS_LABELS[assignment.event.status],
+    teamLeaderName: teamLeaderProfile?.full_name ?? null,
+    teamLeaderAssignmentId: responsibleTeamLeader?.id ?? null,
+    handoffStatus: handoffState?.handoff_status ?? 'draft',
+    checklistItems,
+    shoppingList: requirements.filter((row) => row.quantityToBuy > 0),
+    pickingList: requirements.filter((row) => row.quantityToPull > 0),
   };
 }
 

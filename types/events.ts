@@ -6,8 +6,8 @@ export const EVENT_CHECKLIST_KEYS = [
   'servicio_confirmado',
   'setup_revisado',
 ] as const;
-export const EVENT_ASSIGNMENT_ROLES = ['lider', 'apoyo', 'setup', 'general'] as const;
-export const EVENT_ASSIGNMENT_STATUSES = ['pendiente', 'confirmado'] as const;
+export const EVENT_ASSIGNMENT_ROLES = ['supervisor', 'team_leader', 'assistant', 'lider', 'apoyo', 'setup', 'general'] as const;
+export const EVENT_ASSIGNMENT_STATUSES = ['pendiente', 'pending_acceptance', 'confirmado', 'accepted', 'rejected'] as const;
 export const EVENT_TASK_STATUSES = ['pendiente', 'en_progreso', 'completada', 'bloqueada'] as const;
 export const EVENT_TASK_PRIORITIES = ['baja', 'media', 'alta', 'urgente'] as const;
 export const TASK_SOURCE_TYPES = ['event', 'project', 'list', 'workspace'] as const;
@@ -74,9 +74,26 @@ export interface EventStaffAssignmentRecord {
   profile_id: string;
   assignment_role: EventAssignmentRole;
   assignment_status: EventAssignmentStatus;
+  is_supervisor_responsible: boolean;
+  is_team_leader_responsible: boolean;
+  responded_by: string | null;
+  responded_at: string | null;
+  response_note: string | null;
   note: string | null;
   created_by: string;
   updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventOperationalHandoffStateRecord {
+  id: string;
+  event_id: string;
+  handoff_status: 'draft' | 'ready_for_handoff' | 'handed_off';
+  target_team_leader_assignment_id: string | null;
+  ready_note: string | null;
+  ready_by: string | null;
+  ready_at: string | null;
   created_at: string;
   updated_at: string;
 }

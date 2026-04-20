@@ -572,8 +572,10 @@ export async function applyOperationalTemplateToEventAction(eventId: string, tem
   }
 
   const sortedAssignments = [...staffAssignments].sort((left, right) => {
-    if (left.assignment_status === 'confirmado' && right.assignment_status !== 'confirmado') return -1;
-    if (left.assignment_status !== 'confirmado' && right.assignment_status === 'confirmado') return 1;
+    const leftConfirmed = left.assignment_status === 'confirmado' || left.assignment_status === 'accepted';
+    const rightConfirmed = right.assignment_status === 'confirmado' || right.assignment_status === 'accepted';
+    if (leftConfirmed && !rightConfirmed) return -1;
+    if (!leftConfirmed && rightConfirmed) return 1;
     return left.created_at.localeCompare(right.created_at);
   });
 

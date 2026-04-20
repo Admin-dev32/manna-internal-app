@@ -17,13 +17,22 @@ import type {
   EventChecklistItemRecord,
   EventChecklistProgress,
   EventRecord,
+  EventOperationalHandoffStateRecord,
   EventStaffAssignmentRecord,
   EventStatus,
   EventTaskRecord,
 } from '@/types/events';
 import type { LeadProfileOption } from '@/types/leads';
-import type { EventInventoryRequirementRecord, InventoryAvailabilitySummary, InventoryItemRecord } from '@/types/inventory';
-import type { BarMasterTemplateApplicationRecord, BarMasterTemplateRecord } from '@/types/inventory';
+import type {
+  BarMasterTemplateApplicationRecord,
+  BarMasterTemplateRecord,
+  EventInventoryCloseoutStateRecord,
+  EventInventoryExecutionStateRecord,
+  EventInventoryRequirementRecord,
+  InventoryAvailabilitySummary,
+  InventoryItemRecord,
+  InventoryStockMovementView,
+} from '@/types/inventory';
 import type { QuoteRecord } from '@/types/quotes';
 import type { EventOperationalTemplateApplicationRecord } from '@/types/operational-templates';
 
@@ -33,6 +42,10 @@ export interface EventOperationalSignal {
   key: string;
   level: 'info' | 'warning' | 'critical' | 'success';
   message: string;
+}
+
+function isAssignmentConfirmed(status: string) {
+  return status === 'confirmado' || status === 'accepted';
 }
 
 async function getProfilesMap(ids: string[]) {
@@ -188,6 +201,19 @@ export async function getEventTasks(eventId: string) {
   });
 }
 
+export async function getEventOperationalHandoffState(eventId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data } = await supabase
+    .from('event_operational_handoff_state')
+    .select('*')
+    .eq('event_id', eventId)
+    .maybeSingle();
+
+  return (data as EventOperationalHandoffStateRecord | null) ?? null;
+}
+
 export async function getAssignableProfiles() {
   const supabase = await createSupabaseServerClient();
   if (!supabase) return [] as LeadProfileOption[];
@@ -209,7 +235,7 @@ export async function getEventDetailPageData(eventId: string) {
   }
   const currentEvent = event;
 
-  const [client, lead, preEvent, quote, checklistItems, assignments, tasks, recurringTaskRules, inventorySection, barMasterTemplateSection, templateSection, assignableProfiles, financeSummary, calendarSync, employeeReportsRaw, availabilityRowsRaw] = await Promise.all([
+  const [client, lead, preEvent, quote, checklistItems, assignments, tasks, recurringTaskRules, inventorySection, barMasterTemplateSection, templateSection, assignableProfiles, financeSummary, calendarSync, handoffState, employeeReportsRaw, availabilityRowsRaw] = await Promise.all([
     getClientById(currentEvent.client_id),
     currentEvent.lead_id ? getLeadById(currentEvent.lead_id) : Promise.resolve(null),
     getPreEventById(currentEvent.source_pre_event_id),
@@ -224,6 +250,7 @@ export async function getEventDetailPageData(eventId: string) {
     getAssignableProfiles(),
     getQuoteFinancialSummary(currentEvent.source_quote_id),
     getEventCalendarSyncByEventId(currentEvent.id),
+    getEventOperationalHandoffState(currentEvent.id),
     createSupabaseServerClient().then(async (supabase) => {
       if (!supabase) return [] as EmployeeEventReportRecord[];
       const { data } = await supabase
@@ -266,6 +293,10 @@ export async function getEventDetailPageData(eventId: string) {
     ...inventorySection.inventoryItems.map((item) => item.updated_by),
     ...inventorySection.requirements.map((requirement) => requirement.checked_by),
     ...inventorySection.requirements.map((requirement) => requirement.updated_by),
+    ...Object.values(inventorySection.executionStateByRequirement).flatMap((state) => [state.shopping_updated_by, state.picking_updated_by]),
+    ...Object.values(inventorySection.closeoutStateByRequirement).flatMap((state) => [state.closed_by, state.reviewed_by]),
+    ...inventorySection.recentMovements.map((movement) => movement.created_by),
+    ...inventorySection.recentMovements.map((movement) => movement.approved_by),
     ...barMasterTemplateSection.applications.map((application) => application.applied_by),
   ].filter((value): value is string => Boolean(value));
 
@@ -302,7 +333,7 @@ export async function getEventDetailPageData(eventId: string) {
   const unavailableProfileIds = new Set(
     availabilityRowsRaw.filter((item) => item.availability_status === 'unavailable_reported').map((item) => item.profile_id),
   );
-  const confirmedAssignments = assignments.filter((assignment) => assignment.assignment_status === 'confirmado').length;
+  const confirmedAssignments = assignments.filter((assignment) => isAssignmentConfirmed(assignment.assignment_status)).length;
   const pendingAssignments = assignments.length - confirmedAssignments;
   const hasCalendarFinal = Boolean(calendarSync?.external_event_id) && calendarSync?.sync_status !== 'error';
   const pendingReportReviews = employeeReportsRaw.filter((report) => report.review_status !== 'bonus_liberado' && report.review_status !== 'aprobado').length;
@@ -353,7 +384,10 @@ export async function getEventDetailPageData(eventId: string) {
     recurringTaskRules,
     inventoryItems: inventorySection.inventoryItems as InventoryItemRecord[],
     inventoryRequirements: inventorySection.requirements as EventInventoryRequirementRecord[],
+    inventoryExecutionStateByRequirement: inventorySection.executionStateByRequirement as Record<string, EventInventoryExecutionStateRecord>,
+    inventoryCloseoutStateByRequirement: inventorySection.closeoutStateByRequirement as Record<string, EventInventoryCloseoutStateRecord>,
     inventoryAvailabilityByItem: inventorySection.availabilityByItem as Record<string, InventoryAvailabilitySummary>,
+    inventoryRecentMovements: inventorySection.recentMovements as InventoryStockMovementView[],
     barMasterTemplates: barMasterTemplateSection.templates as BarMasterTemplateRecord[],
     barMasterTemplateApplications: barMasterTemplateSection.applications as BarMasterTemplateApplicationRecord[],
     applicableOperationalTemplates: templateSection.applicableTemplates,
@@ -363,6 +397,7 @@ export async function getEventDetailPageData(eventId: string) {
     profiles,
     financeSummary,
     calendarSync,
+    handoffState,
     operationalHubStatus,
     operationalSignals,
     employeeReports: employeeReportsRaw,

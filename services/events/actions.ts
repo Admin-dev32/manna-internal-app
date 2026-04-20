@@ -124,6 +124,20 @@ function normalizeOptionalString(value: FormDataEntryValue | null) {
   return normalized || null;
 }
 
+function normalizeAssignmentStatus(value: string) {
+  if (
+    value === 'pendiente' ||
+    value === 'pending_acceptance' ||
+    value === 'confirmado' ||
+    value === 'accepted' ||
+    value === 'rejected'
+  ) {
+    return value as (typeof EVENT_ASSIGNMENT_STATUSES)[number];
+  }
+
+  return 'pending_acceptance' as (typeof EVENT_ASSIGNMENT_STATUSES)[number];
+}
+
 export async function createEventFromPreEventAction(preEventId: string) {
   const session = await requireActiveSession();
   const supabase = await createSupabaseServerClient();
@@ -509,8 +523,10 @@ export async function createEventStaffAssignmentAction(eventId: string, formData
 
   const profileId = String(formData.get('profile_id') ?? '').trim();
   const assignmentRole = String(formData.get('assignment_role') ?? 'general');
-  const assignmentStatus = String(formData.get('assignment_status') ?? 'pendiente');
+  const assignmentStatus = normalizeAssignmentStatus(String(formData.get('assignment_status') ?? 'pending_acceptance'));
   const note = String(formData.get('note') ?? '').trim();
+  const isSupervisorResponsible = String(formData.get('is_supervisor_responsible') ?? 'false') === 'true';
+  const isTeamLeaderResponsible = String(formData.get('is_team_leader_responsible') ?? 'false') === 'true';
 
   if (!profileId) {
     return;
@@ -520,7 +536,7 @@ export async function createEventStaffAssignmentAction(eventId: string, formData
     return;
   }
 
-  if (!EVENT_ASSIGNMENT_STATUSES.includes(assignmentStatus as (typeof EVENT_ASSIGNMENT_STATUSES)[number])) {
+  if (!EVENT_ASSIGNMENT_STATUSES.includes(assignmentStatus)) {
     return;
   }
 
@@ -542,6 +558,8 @@ export async function createEventStaffAssignmentAction(eventId: string, formData
       .update({
         assignment_role: assignmentRole,
         assignment_status: assignmentStatus,
+        is_supervisor_responsible: isSupervisorResponsible,
+        is_team_leader_responsible: isTeamLeaderResponsible,
         note: note || null,
         updated_by: session.user.id,
       })
@@ -552,6 +570,8 @@ export async function createEventStaffAssignmentAction(eventId: string, formData
       profile_id: profileId,
       assignment_role: assignmentRole,
       assignment_status: assignmentStatus,
+      is_supervisor_responsible: isSupervisorResponsible,
+      is_team_leader_responsible: isTeamLeaderResponsible,
       note: note || null,
       created_by: session.user.id,
       updated_by: session.user.id,
@@ -579,8 +599,10 @@ export async function updateEventStaffAssignmentAction(eventId: string, assignme
   }
 
   const assignmentRole = String(formData.get('assignment_role') ?? 'general');
-  const assignmentStatus = String(formData.get('assignment_status') ?? 'pendiente');
+  const assignmentStatus = normalizeAssignmentStatus(String(formData.get('assignment_status') ?? 'pending_acceptance'));
   const note = String(formData.get('note') ?? '').trim();
+  const isSupervisorResponsible = String(formData.get('is_supervisor_responsible') ?? 'false') === 'true';
+  const isTeamLeaderResponsible = String(formData.get('is_team_leader_responsible') ?? 'false') === 'true';
   const event = await getEventById(eventId);
 
   if (!event) {
@@ -591,7 +613,7 @@ export async function updateEventStaffAssignmentAction(eventId: string, assignme
     return;
   }
 
-  if (!EVENT_ASSIGNMENT_STATUSES.includes(assignmentStatus as (typeof EVENT_ASSIGNMENT_STATUSES)[number])) {
+  if (!EVENT_ASSIGNMENT_STATUSES.includes(assignmentStatus)) {
     return;
   }
 
@@ -605,6 +627,8 @@ export async function updateEventStaffAssignmentAction(eventId: string, assignme
     .update({
       assignment_role: assignmentRole,
       assignment_status: assignmentStatus,
+      is_supervisor_responsible: isSupervisorResponsible,
+      is_team_leader_responsible: isTeamLeaderResponsible,
       note: note || null,
       updated_by: session.user.id,
     })
@@ -655,6 +679,40 @@ export async function removeEventStaffAssignmentAction(eventId: string, assignme
       `Se removió ${profile?.full_name ?? 'una asignación'} del evento #${event.id.slice(0, 8)}.`,
     );
   }
+
+  await revalidateEventPaths(eventId);
+}
+
+export async function updateEventOperationalHandoffStateAction(eventId: string, formData: FormData) {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) return;
+  if (!hasPermission(session.user, 'inventory.prepare') && !hasPermission(session.user, 'inventory.manage')) return;
+
+  const event = await getEventById(eventId);
+  if (!event) return;
+
+  const nextStatus = String(formData.get('handoff_status') ?? 'draft');
+  const readyNote = normalizeOptionalString(formData.get('ready_note'));
+  const targetAssignmentIdRaw = normalizeOptionalString(formData.get('target_team_leader_assignment_id'));
+  const targetAssignmentId = targetAssignmentIdRaw === 'none' ? null : targetAssignmentIdRaw;
+
+  if (nextStatus !== 'draft' && nextStatus !== 'ready_for_handoff' && nextStatus !== 'handed_off') return;
+
+  await supabase
+    .from('event_operational_handoff_state')
+    .upsert(
+      {
+        event_id: eventId,
+        handoff_status: nextStatus,
+        target_team_leader_assignment_id: targetAssignmentId,
+        ready_note: readyNote,
+        ready_by: nextStatus === 'draft' ? null : session.user.id,
+        ready_at: nextStatus === 'draft' ? null : new Date().toISOString(),
+      },
+      { onConflict: 'event_id' },
+    );
 
   await revalidateEventPaths(eventId);
 }
