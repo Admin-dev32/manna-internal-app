@@ -9,8 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PERMISSION_DESCRIPTIONS, PERMISSION_LABELS, USER_MANAGEMENT_OVERRIDE_OPTIONS } from '@/config/permissions';
-import { ROLE_LABELS } from '@/config/roles';
+import { BASE_ROLE_LABELS, getOperationalProfilePresetPermissions, OPERATIONAL_PROFILE_LABELS } from '@/config/user-access-presets';
 import { getRolePermissions } from '@/lib/auth/permissions';
+import { fromSystemBaseRole } from '@/lib/auth/roles';
 import { initialUserManagementActionState } from '@/services/user-management/form-state';
 import { deletePendingManagedUserAction, resendManagedUserInviteAction, updateManagedUserAction } from '@/services/user-management/actions';
 import { PERMISSION_KEYS, type PermissionKey } from '@/types/auth';
@@ -24,20 +25,26 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
   const [state, formAction] = useActionState(updateManagedUserAction.bind(null, user.id), initialUserManagementActionState);
   const [resendState, resendAction] = useActionState(resendManagedUserInviteAction.bind(null, user.id), initialUserManagementActionState);
   const [deleteState, deleteAction] = useActionState(deletePendingManagedUserAction.bind(null, user.id), initialUserManagementActionState);
-  const [selectedRole, setSelectedRole] = useState(user.role);
+  const [selectedBaseRole, setSelectedBaseRole] = useState(user.base_role);
+  const [selectedOperationalProfile, setSelectedOperationalProfile] = useState(user.operational_profile);
   const [grantedPermissions, setGrantedPermissions] = useState<PermissionKey[]>(user.granted_permissions);
   const [revokedPermissions, setRevokedPermissions] = useState<PermissionKey[]>(user.revoked_permissions);
   const isProtectedOwner = user.is_site_owner;
   const canEditRole = !isProtectedOwner;
   const canEditStatus = !isProtectedOwner;
-  const canEditOverrides = selectedRole !== 'owner' && !isProtectedOwner;
+  const canEditOverrides = selectedBaseRole !== 'owner' && !isProtectedOwner;
+  const selectedRole = useMemo(() => fromSystemBaseRole(selectedBaseRole), [selectedBaseRole]);
   const rolePermissions = useMemo(() => getRolePermissions(selectedRole), [selectedRole]);
+  const presetPermissions = useMemo(
+    () => getOperationalProfilePresetPermissions(selectedBaseRole, selectedOperationalProfile),
+    [selectedBaseRole, selectedOperationalProfile],
+  );
   const effectivePermissionSet = useMemo(() => {
-    if (isProtectedOwner || selectedRole === 'owner') {
+    if (isProtectedOwner || selectedBaseRole === 'owner') {
       return new Set(PERMISSION_KEYS);
     }
 
-    const effective = new Set(rolePermissions);
+    const effective = new Set([...rolePermissions, ...presetPermissions]);
 
     grantedPermissions.forEach((permission) => {
       effective.add(permission);
@@ -48,7 +55,43 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
     });
 
     return effective;
-  }, [grantedPermissions, isProtectedOwner, revokedPermissions, rolePermissions, selectedRole]);
+  }, [grantedPermissions, isProtectedOwner, revokedPermissions, rolePermissions, presetPermissions, selectedBaseRole]);
+  const hasUnsavedAccessDraft = useMemo(() => {
+    const sameSet = (left: PermissionKey[], right: PermissionKey[]) =>
+      left.length === right.length && left.every((item) => right.includes(item));
+
+    return (
+      selectedBaseRole !== user.base_role
+      || selectedOperationalProfile !== user.operational_profile
+      || !sameSet(grantedPermissions, user.granted_permissions)
+      || !sameSet(revokedPermissions, user.revoked_permissions)
+    );
+  }, [grantedPermissions, revokedPermissions, selectedBaseRole, selectedOperationalProfile, user.base_role, user.granted_permissions, user.operational_profile, user.revoked_permissions]);
+
+  const permissionExplainabilityRows = useMemo(() => {
+    if (!hasUnsavedAccessDraft && user.permission_breakdown.length > 0) {
+      return user.permission_breakdown;
+    }
+
+    return PERMISSION_KEYS.map((permission) => {
+      const fromRole = rolePermissions.includes(permission);
+      const fromOperationalProfile = presetPermissions.includes(permission);
+      const fromOverrideGrant = grantedPermissions.includes(permission);
+      const fromOverrideRevoke = revokedPermissions.includes(permission);
+      const isEffective = effectivePermissionSet.has(permission);
+
+      return {
+        permission_key: permission,
+        from_role: fromRole,
+        from_operational_profile: fromOperationalProfile,
+        from_override_grant: fromOverrideGrant,
+        from_override_revoke: fromOverrideRevoke,
+        is_effective: isEffective,
+      };
+    });
+  }, [effectivePermissionSet, grantedPermissions, hasUnsavedAccessDraft, presetPermissions, revokedPermissions, rolePermissions, user.permission_breakdown]);
+
+  const activeOverrideCount = grantedPermissions.length + revokedPermissions.length;
 
   function addGrantedPermission(permission: PermissionKey) {
     if (!canEditOverrides) return;
@@ -74,6 +117,8 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
 
   return (
     <form action={formAction} className="space-y-6">
+      <input type="hidden" name="base_role" value={selectedBaseRole} />
+      <input type="hidden" name="operational_profile" value={selectedOperationalProfile} />
       <section className="flex flex-col gap-4 rounded-[2rem] border border-border bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 p-6 text-white shadow-panel sm:p-8">
         <div className="flex flex-wrap items-center gap-3">
           <Badge variant="secondary">Admin only</Badge>
@@ -117,18 +162,36 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary" htmlFor="role">
-                    Rol base
+                    Rol base del sistema
                   </label>
                   <select
                     id="role"
-                    name="role"
-                    defaultValue={user.role}
-                    onChange={(event) => setSelectedRole(event.target.value as typeof user.role)}
+                    value={selectedBaseRole}
+                    onChange={(event) => setSelectedBaseRole(event.target.value as typeof selectedBaseRole)}
                     disabled={!canEditRole}
                     className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    {Object.entries(ROLE_LABELS).map(([role, label]) => (
+                    {Object.entries(BASE_ROLE_LABELS).map(([role, label]) => (
                       <option key={role} value={role}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary" htmlFor="operational_profile">
+                    Perfil operativo global
+                  </label>
+                  <select
+                    id="operational_profile"
+                    value={selectedOperationalProfile}
+                    onChange={(event) => setSelectedOperationalProfile(event.target.value as typeof selectedOperationalProfile)}
+                    disabled={!canEditRole}
+                    className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {Object.entries(OPERATIONAL_PROFILE_LABELS).map(([profile, label]) => (
+                      <option key={profile} value={profile}>
                         {label}
                       </option>
                     ))}
@@ -146,8 +209,18 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <InfoBox label="Role actual" value={ROLE_LABELS[user.role]} />
-                <InfoBox label="Permisos efectivos" value={`${user.effective_permissions.length} permisos`} />
+                <InfoBox label="Rol base actual" value={BASE_ROLE_LABELS[selectedBaseRole]} />
+                <InfoBox label="Permisos efectivos" value={`${permissionExplainabilityRows.filter((item) => item.is_effective).length} permisos`} />
+                <InfoBox label="Perfil operativo global" value={OPERATIONAL_PROFILE_LABELS[selectedOperationalProfile]} />
+                <InfoBox label="Preset aplicado" value={presetPermissions.length > 0 ? `${presetPermissions.length} permisos extra` : 'Sin permisos extra'} />
+              </div>
+              <div className="rounded-2xl border border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+                Resumen de fuentes: rol base <strong className="text-foreground">{selectedBaseRole}</strong> · perfil operativo{' '}
+                <strong className="text-foreground">{selectedOperationalProfile}</strong> · preset{' '}
+                <strong className="text-foreground">{presetPermissions.length > 0 ? 'activo' : 'sin extras'}</strong> · overrides manuales{' '}
+                <strong className="text-foreground">{activeOverrideCount}</strong> · resultado final{' '}
+                <strong className="text-foreground">{permissionExplainabilityRows.filter((item) => item.is_effective).length}</strong>.
+                {hasUnsavedAccessDraft ? ' Vista previa local (cambios no guardados).' : ' Datos confirmados desde backend.'}
               </div>
             </CardContent>
           </Card>
@@ -211,7 +284,7 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant={user.is_active ? 'success' : 'warning'}>{user.is_active ? 'Activo' : 'Inactivo'}</Badge>
-                <Badge variant={user.role === 'owner' ? 'default' : 'secondary'}>{ROLE_LABELS[user.role]}</Badge>
+                <Badge variant={selectedBaseRole === 'owner' ? 'default' : 'secondary'}>{BASE_ROLE_LABELS[selectedBaseRole]}</Badge>
                 {user.is_site_owner ? <Badge>Site owner</Badge> : null}
                 {user.invitation_pending ? <Badge variant="secondary">Pendiente de primer acceso</Badge> : null}
               </div>
@@ -293,14 +366,16 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
       <Card>
         <CardHeader>
           <CardTitle>Permisos efectivos por usuario</CardTitle>
-          <CardDescription>Vista clara de heredado por rol, override manual y resultado final por permiso.</CardDescription>
+          <CardDescription>Desglose por fuente real: rol base, perfil/preset, overrides manuales y resultado final.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {PERMISSION_KEYS.map((permission) => {
-            const inherited = rolePermissions.includes(permission);
-            const granted = grantedPermissions.includes(permission);
-            const revoked = revokedPermissions.includes(permission);
-            const effective = effectivePermissionSet.has(permission);
+          {permissionExplainabilityRows.map((row) => {
+            const permission = row.permission_key;
+            const inherited = row.from_role;
+            const fromOperationalProfile = row.from_operational_profile;
+            const granted = row.from_override_grant;
+            const revoked = row.from_override_revoke;
+            const effective = row.is_effective;
 
             return (
               <div key={`effective-${permission}`} className="rounded-2xl border border-border bg-background px-4 py-3">
@@ -310,7 +385,10 @@ export function UserAccessForm({ user }: UserAccessFormProps) {
                     <p className="text-xs text-muted-foreground">{PERMISSION_DESCRIPTIONS[permission]}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Badge variant={inherited ? 'outline' : 'secondary'}>{inherited ? 'Heredado por rol' : 'No heredado'}</Badge>
+                    <Badge variant={inherited ? 'outline' : 'secondary'}>{inherited ? 'Rol base' : 'Sin rol base'}</Badge>
+                    <Badge variant={fromOperationalProfile ? 'outline' : 'secondary'}>
+                      {fromOperationalProfile ? 'Perfil/preset' : 'Sin perfil/preset'}
+                    </Badge>
                     {granted ? <Badge variant="success">Override: Grant</Badge> : null}
                     {revoked ? <Badge variant="warning">Override: Revoke</Badge> : null}
                     <Badge variant={effective ? 'success' : 'warning'}>{effective ? 'Efectivo: Permitido' : 'Efectivo: Restringido'}</Badge>
