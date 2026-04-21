@@ -2,7 +2,7 @@ import { cache } from 'react';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { hasSupabaseCredentials } from '@/lib/supabase/env';
-import { normalizeRole } from '@/lib/auth/roles';
+import { normalizeOperationalProfile, normalizeRole, toSystemBaseRole } from '@/lib/auth/roles';
 import { getCurrentUserAccessContext, getProfileRecordByUserId, reconcileCurrentUserProfile } from '@/services/auth/profile';
 import { PERMISSION_KEYS } from '@/types/auth';
 import type { AppUser, SessionContext } from '@/types/auth';
@@ -12,6 +12,8 @@ const demoUser: AppUser = {
   nombre: 'Equipo Manna',
   email: 'demo@manna.local',
   rol: 'owner',
+  baseRole: 'owner',
+  operationalProfile: 'general_staff',
   estado: 'activo',
   permissions: [...PERMISSION_KEYS],
   isSiteOwner: true,
@@ -70,6 +72,8 @@ export const getSessionContext = cache(async (): Promise<SessionContext> => {
       nombre: profile?.full_name ?? fullName ?? user.email?.split('@')[0] ?? 'Empleado',
       email: user.email ?? 'sin-correo@manna.local',
       rol: normalizedRole,
+      baseRole: accessContext?.base_role ?? toSystemBaseRole(normalizedRole),
+      operationalProfile: normalizeOperationalProfile(accessContext?.operational_profile),
       estado: isActiveProfile && isActiveContext ? 'activo' : 'inactivo',
       permissions: accessContext?.permissions ?? [],
       isSiteOwner: accessContext?.is_site_owner ?? normalizedRole === 'owner',

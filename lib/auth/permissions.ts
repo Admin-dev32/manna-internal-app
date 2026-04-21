@@ -1,6 +1,8 @@
 import { ROLE_PERMISSIONS } from '@/config/roles';
+import { getOperationalProfilePresetPermissions } from '@/config/user-access-presets';
 import { PERMISSION_KEYS } from '@/types/auth';
 import type { AppUser, PermissionKey, UserRole } from '@/types/auth';
+import { normalizeOperationalProfile, toSystemBaseRole } from '@/lib/auth/roles';
 
 function uniquePermissions(permissions: PermissionKey[]) {
   return [...new Set(permissions)];
@@ -14,7 +16,7 @@ export function getRolePermissions(role: UserRole) {
   return ROLE_PERMISSIONS[role];
 }
 
-export function getEffectivePermissions(subject: UserRole | Pick<AppUser, 'rol' | 'permissions'>) {
+export function getEffectivePermissions(subject: UserRole | Pick<AppUser, 'rol' | 'permissions' | 'baseRole' | 'operationalProfile'>) {
   if (typeof subject === 'string') {
     return getRolePermissions(subject);
   }
@@ -23,10 +25,16 @@ export function getEffectivePermissions(subject: UserRole | Pick<AppUser, 'rol' 
     return [...PERMISSION_KEYS];
   }
 
-  return uniquePermissions(subject.permissions.length > 0 ? subject.permissions : getRolePermissions(subject.rol));
+  if (subject.permissions.length > 0) {
+    return uniquePermissions(subject.permissions);
+  }
+
+  const baseRole = subject.baseRole ?? toSystemBaseRole(subject.rol);
+  const operationalProfile = normalizeOperationalProfile(subject.operationalProfile);
+  return uniquePermissions([...getRolePermissions(subject.rol), ...getOperationalProfilePresetPermissions(baseRole, operationalProfile)]);
 }
 
-export function hasPermission(subject: UserRole | Pick<AppUser, 'rol' | 'permissions'>, permission: PermissionKey) {
+export function hasPermission(subject: UserRole | Pick<AppUser, 'rol' | 'permissions' | 'baseRole' | 'operationalProfile'>, permission: PermissionKey) {
   if (typeof subject === 'string') {
     return getRolePermissions(subject).includes(permission);
   }
@@ -34,7 +42,7 @@ export function hasPermission(subject: UserRole | Pick<AppUser, 'rol' | 'permiss
   return getEffectivePermissions(subject).includes(permission);
 }
 
-export function hasAnyPermission(subject: UserRole | Pick<AppUser, 'rol' | 'permissions'>, permissions: PermissionKey[]) {
+export function hasAnyPermission(subject: UserRole | Pick<AppUser, 'rol' | 'permissions' | 'baseRole' | 'operationalProfile'>, permissions: PermissionKey[]) {
   const effectivePermissions = getEffectivePermissions(subject);
   return permissions.some((permission) => effectivePermissions.includes(permission));
 }

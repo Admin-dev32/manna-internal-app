@@ -4,9 +4,10 @@ import { revalidatePath } from 'next/cache';
 
 import { requirePermission } from '@/lib/auth/guards';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fromSystemBaseRole } from '@/lib/auth/roles';
 import { supabaseEnv } from '@/lib/supabase/env';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { PERMISSION_KEYS, USER_ROLES } from '@/types/auth';
+import { OPERATIONAL_PROFILES, PERMISSION_KEYS, SYSTEM_BASE_ROLES, USER_ROLES } from '@/types/auth';
 import type { UserManagementActionState } from '@/types/user-management';
 
 const corporateEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
@@ -63,8 +64,10 @@ export async function createManagedUserAction(
 
   const email = String(formData.get('email') ?? '').trim().toLowerCase();
   const fullName = String(formData.get('full_name') ?? '').trim();
-  const role = String(formData.get('role') ?? 'empleado');
+  const baseRole = String(formData.get('base_role') ?? formData.get('role') ?? 'employee');
   const isActive = formData.get('is_active') === 'on';
+  const operationalProfile = String(formData.get('operational_profile') ?? 'general_staff');
+  const role = fromSystemBaseRole(baseRole);
 
   if (!email) {
     return {
@@ -80,10 +83,17 @@ export async function createManagedUserAction(
     };
   }
 
-  if (!USER_ROLES.includes(role as (typeof USER_ROLES)[number])) {
+  if (!SYSTEM_BASE_ROLES.includes(baseRole as (typeof SYSTEM_BASE_ROLES)[number]) || !USER_ROLES.includes(role as (typeof USER_ROLES)[number])) {
     return {
       status: 'error',
-      message: 'Selecciona un rol válido.',
+      message: 'Selecciona un rol base válido.',
+    };
+  }
+
+  if (!OPERATIONAL_PROFILES.includes(operationalProfile as (typeof OPERATIONAL_PROFILES)[number])) {
+    return {
+      status: 'error',
+      message: 'Selecciona un perfil operativo válido.',
     };
   }
 
@@ -111,6 +121,7 @@ export async function createManagedUserAction(
       data: {
         full_name: fullName || email,
         role,
+        base_role: baseRole,
       },
       redirectTo: `${supabaseEnv.appUrl}/auth/callback?next=/actualizar-clave&flow=invite`,
     });
@@ -190,6 +201,7 @@ export async function createManagedUserAction(
     target_admin_notes: '',
     granted_permissions: [],
     revoked_permissions: [],
+    target_operational_profile: operationalProfile,
   });
 
   if (adminUpdateError) {
@@ -227,17 +239,26 @@ export async function updateManagedUserAction(
     };
   }
 
-  const role = String(formData.get('role') ?? 'empleado');
+  const baseRole = String(formData.get('base_role') ?? formData.get('role') ?? 'employee');
   const isActive = formData.get('is_active') === 'on';
   const fullName = String(formData.get('full_name') ?? '').trim();
   const adminNotes = String(formData.get('admin_notes') ?? '');
+  const operationalProfile = String(formData.get('operational_profile') ?? 'general_staff');
   const grantedPermissions = getCheckedValues(formData, 'granted_permissions');
   const revokedPermissions = getCheckedValues(formData, 'revoked_permissions');
+  const role = fromSystemBaseRole(baseRole);
 
-  if (!USER_ROLES.includes(role as (typeof USER_ROLES)[number])) {
+  if (!SYSTEM_BASE_ROLES.includes(baseRole as (typeof SYSTEM_BASE_ROLES)[number]) || !USER_ROLES.includes(role as (typeof USER_ROLES)[number])) {
     return {
       status: 'error',
-      message: 'Selecciona un rol válido.',
+      message: 'Selecciona un rol base válido.',
+    };
+  }
+
+  if (!OPERATIONAL_PROFILES.includes(operationalProfile as (typeof OPERATIONAL_PROFILES)[number])) {
+    return {
+      status: 'error',
+      message: 'Selecciona un perfil operativo válido.',
     };
   }
 
@@ -263,6 +284,7 @@ export async function updateManagedUserAction(
     target_admin_notes: adminNotes,
     granted_permissions: grantedPermissions,
     revoked_permissions: revokedPermissions,
+    target_operational_profile: operationalProfile,
   });
 
   if (error) {
@@ -368,6 +390,7 @@ export async function resendManagedUserInviteAction(
     data: {
       full_name: user.user_metadata?.full_name ?? user.email,
       role: user.app_metadata?.role ?? 'empleado',
+      base_role: user.app_metadata?.base_role ?? 'employee',
     },
     redirectTo: `${supabaseEnv.appUrl}/auth/callback?next=/actualizar-clave&flow=invite`,
   });
