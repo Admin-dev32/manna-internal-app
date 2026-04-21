@@ -209,7 +209,8 @@ begin
 end;
 $$;
 
-create or replace function public.get_current_user_access_context()
+drop function if exists public.get_current_user_access_context();
+create function public.get_current_user_access_context()
 returns table (
   user_id uuid,
   role text,
