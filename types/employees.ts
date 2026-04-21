@@ -12,6 +12,18 @@ export type EmployeeReportStage =
 
 export type EmployeeReportReviewStatus = 'pendiente_revision' | 'en_revision' | 'aprobado' | 'observado' | 'requiere_correccion' | 'bonus_liberado';
 export type EmployeeAvailabilityStatus = 'unavailable_reported' | 'withdrawn';
+export type TeamLeaderQcCheckpointKey =
+  | 'arrival_at_event'
+  | 'setup_ready'
+  | 'mid_service'
+  | 'post_service_pre_clean'
+  | 'post_cleaning'
+  | 'final_closeout_inventory';
+export type TeamLeaderQcCheckpointStatus = 'pending' | 'submitted' | 'approved' | 'observed';
+export type TeamLeaderQcCheckpointLogActionKind = 'submitted' | 'observed' | 'resubmitted' | 'approved' | 'returned_to_submitted';
+export type TeamLeaderComplianceStatus = 'conforme' | 'con_observaciones' | 'no_conforme';
+export type TeamLeaderBonusRecommendationStatus = 'recommended' | 'not_recommended' | 'pending';
+export type TeamLeaderBonusFinalDecisionStatus = 'pending' | 'approved' | 'rejected';
 
 export interface EmployeeAssignedEvent {
   event: EventRecord;
@@ -86,6 +98,7 @@ export interface TeamLeaderExecutionContext {
   shoppingList: TeamLeaderExecutionRequirement[];
   pickingList: TeamLeaderExecutionRequirement[];
   checklistItems: EventChecklistItemRecord[];
+  qcCheckpoints: TeamLeaderQcCheckpointRecord[];
 }
 
 export interface AssistantLightContext {
@@ -134,4 +147,77 @@ export interface EmployeeReportEvidenceRecord {
   discarded_at: string | null;
   discard_reason: string | null;
   created_at: string;
+}
+
+export interface TeamLeaderQcCheckpointRecord {
+  id: string;
+  event_id: string;
+  team_leader_assignment_id: string;
+  checkpoint_key: TeamLeaderQcCheckpointKey;
+  status: TeamLeaderQcCheckpointStatus;
+  report_id: string | null;
+  comment: string | null;
+  recorded_at: string | null;
+  submitted_by: string | null;
+  submitted_at: string | null;
+  review_notes: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  history: TeamLeaderQcCheckpointLogRecord[];
+  latest_submission_kind: 'submitted' | 'resubmitted' | null;
+}
+
+export interface TeamLeaderQcCheckpointReviewItem extends TeamLeaderQcCheckpointRecord {
+  event: Pick<EventRecord, 'id' | 'event_date' | 'event_time' | 'booked_service' | 'location'>;
+  team_leader_profile: { id: string; full_name: string | null };
+  report: EmployeeEventReportRecord | null;
+  evidences: Array<EmployeeReportEvidenceRecord & { signed_url: string | null; uploaded_by_name: string | null }>;
+}
+
+export interface TeamLeaderQcCheckpointLogRecord {
+  id: string;
+  checkpoint_id: string;
+  event_id: string;
+  team_leader_assignment_id: string;
+  status_snapshot: TeamLeaderQcCheckpointStatus;
+  action_kind: TeamLeaderQcCheckpointLogActionKind;
+  actor_profile_id: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface TeamLeaderBonusRecommendationRecord {
+  id: string;
+  event_id: string;
+  team_leader_assignment_id: string;
+  compliance_status: TeamLeaderComplianceStatus;
+  recommendation_status: TeamLeaderBonusRecommendationStatus;
+  suggested_bonus_amount: number | null;
+  supervisor_note: string | null;
+  recommended_by: string | null;
+  recommended_at: string | null;
+  final_decision_status: TeamLeaderBonusFinalDecisionStatus;
+  final_bonus_amount: number | null;
+  final_note: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamLeaderBonusReviewItem {
+  recommendation: TeamLeaderBonusRecommendationRecord;
+  event: Pick<EventRecord, 'id' | 'event_date' | 'event_time' | 'booked_service' | 'location'>;
+  team_leader_profile: { id: string; full_name: string | null };
+  checkpoint_context: {
+    total: number;
+    approved: number;
+    observed: number;
+    submitted: number;
+    pending: number;
+    resubmitted_count: number;
+    final_closeout_approved: boolean;
+  };
 }

@@ -4,11 +4,19 @@ import type { Route } from 'next';
 import { revalidatePath } from 'next/cache';
 
 import { EMPLOYEE_UNAVAILABLE_NOTICE_MIN_DAYS } from '@/config/employees';
+import { TEAM_LEADER_QC_CHECKPOINT_LABELS, TEAM_LEADER_QC_CHECKPOINT_SEQUENCE, TEAM_LEADER_QC_CHECKPOINT_TO_REPORT_STAGE } from '@/config/employees';
 import { requireActiveSession } from '@/lib/auth/guards';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { EmployeeActionFormState } from '@/services/employees/form-state';
 import { getEmployeeAssignmentById } from '@/services/employees/queries';
-import type { EmployeeReportReviewStatus, EmployeeReportStage } from '@/types/employees';
+import type {
+  EmployeeReportReviewStatus,
+  EmployeeReportStage,
+  TeamLeaderBonusFinalDecisionStatus,
+  TeamLeaderBonusRecommendationStatus,
+  TeamLeaderComplianceStatus,
+  TeamLeaderQcCheckpointKey,
+} from '@/types/employees';
 import type { EventInventoryCloseoutStatus } from '@/types/inventory';
 
 function normalizeOptionalString(value: FormDataEntryValue | null) {
@@ -94,6 +102,60 @@ function normalizeExecutionStatus(track: 'shopping' | 'picking', value: string) 
     return value === 'pending' || value === 'bought' ? value : null;
   }
   return value === 'pending' || value === 'pulled' ? value : null;
+}
+
+function normalizeComplianceStatus(value: string): TeamLeaderComplianceStatus | null {
+  return value === 'conforme' || value === 'con_observaciones' || value === 'no_conforme' ? value : null;
+}
+
+function normalizeRecommendationStatus(value: string): TeamLeaderBonusRecommendationStatus | null {
+  return value === 'recommended' || value === 'not_recommended' || value === 'pending' ? value : null;
+}
+
+function normalizeFinalDecisionStatus(value: string): TeamLeaderBonusFinalDecisionStatus | null {
+  return value === 'pending' || value === 'approved' || value === 'rejected' ? value : null;
+}
+
+function isTeamLeaderQcCheckpointKey(value: string): value is TeamLeaderQcCheckpointKey {
+  return TEAM_LEADER_QC_CHECKPOINT_SEQUENCE.some((key) => key === value);
+}
+
+async function ensureTeamLeaderQcCheckpoints(
+  supabase: NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>,
+  eventId: string,
+  assignmentId: string,
+) {
+  const payload = TEAM_LEADER_QC_CHECKPOINT_SEQUENCE.map((checkpointKey, index) => ({
+    event_id: eventId,
+    team_leader_assignment_id: assignmentId,
+    checkpoint_key: checkpointKey,
+    status: 'pending',
+    order_index: index + 1,
+  }));
+  await supabase.from('team_leader_qc_checkpoints').upsert(payload, { onConflict: 'event_id,team_leader_assignment_id,checkpoint_key' });
+}
+
+async function appendCheckpointLog(
+  supabase: NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>,
+  payload: {
+    checkpointId: string;
+    eventId: string;
+    assignmentId: string;
+    statusSnapshot: 'pending' | 'submitted' | 'approved' | 'observed';
+    actionKind: 'submitted' | 'observed' | 'resubmitted' | 'approved' | 'returned_to_submitted';
+    actorProfileId: string;
+    note?: string | null;
+  },
+) {
+  await supabase.from('team_leader_qc_checkpoint_logs').insert({
+    checkpoint_id: payload.checkpointId,
+    event_id: payload.eventId,
+    team_leader_assignment_id: payload.assignmentId,
+    status_snapshot: payload.statusSnapshot,
+    action_kind: payload.actionKind,
+    actor_profile_id: payload.actorProfileId,
+    note: payload.note ?? null,
+  });
 }
 
 export async function submitEmployeeEventReportAction(
@@ -530,6 +592,294 @@ export async function completeAssistantChecklistItemAction(
   revalidatePath('/empleados' as Route);
   revalidatePath(`/eventos/${eventId}` as Route);
   return { status: 'success', message: 'Checklist de apoyo marcada como completada.' };
+}
+
+export async function submitTeamLeaderQcCheckpointAction(
+  _previousState: EmployeeActionFormState,
+  formData: FormData,
+): Promise<EmployeeActionFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+
+  const eventId = String(formData.get('event_id') ?? '');
+  const checkpointKeyRaw = String(formData.get('checkpoint_key') ?? '');
+  const comment = normalizeOptionalString(formData.get('checkpoint_comment'));
+  const evidenceFiles = formData
+    .getAll('checkpoint_evidence_files')
+    .filter((value): value is File => value instanceof File && value.size > 0)
+    .slice(0, 6);
+
+  if (!eventId || !isTeamLeaderQcCheckpointKey(checkpointKeyRaw)) {
+    return { status: 'error', message: 'Checkpoint inválido.' };
+  }
+  if (evidenceFiles.length === 0) {
+    return { status: 'error', message: 'Sube al menos una evidencia para registrar el checkpoint.' };
+  }
+
+  const assignment = await getTeamLeaderExecutionAssignment(session.user.id, eventId);
+  if (!assignment) {
+    return { status: 'error', message: 'Solo Team Leader asignado y aceptado puede registrar checkpoints.' };
+  }
+
+  await ensureTeamLeaderQcCheckpoints(supabase, eventId, assignment.id);
+  const { data: checkpointRow } = await supabase
+    .from('team_leader_qc_checkpoints')
+    .select('id, status')
+    .eq('event_id', eventId)
+    .eq('team_leader_assignment_id', assignment.id)
+    .eq('checkpoint_key', checkpointKeyRaw)
+    .maybeSingle();
+  if (!checkpointRow) {
+    return { status: 'error', message: 'No fue posible ubicar el checkpoint para este evento.' };
+  }
+
+  const wasObserved = checkpointRow.status === 'observed';
+
+  const reportStage = TEAM_LEADER_QC_CHECKPOINT_TO_REPORT_STAGE[checkpointKeyRaw];
+  const reportNote = `QC checkpoint · ${TEAM_LEADER_QC_CHECKPOINT_LABELS[checkpointKeyRaw]}`;
+  const { data: reportInsert, error: reportInsertError } = await supabase
+    .from('employee_event_reports')
+    .insert({
+      event_id: eventId,
+      assignment_id: assignment.id,
+      reporter_profile_id: session.user.id,
+      report_stage: reportStage,
+      status_update: reportNote,
+      service_notes: comment,
+      evidence_urls: [],
+      review_status: 'pendiente_revision',
+    })
+    .select('id')
+    .single();
+
+  if (reportInsertError || !reportInsert) {
+    return { status: 'error', message: 'No pudimos crear el reporte base del checkpoint.' };
+  }
+
+  const uploadErrors: string[] = [];
+  for (const file of evidenceFiles) {
+    const safeName = normalizeFileName(file.name || `qc-${checkpointKeyRaw}-${Date.now()}.jpg`);
+    const storagePath = `${session.user.id}/${reportInsert.id}/${checkpointKeyRaw}-${Date.now()}-${safeName}`;
+    const upload = await supabase.storage.from('employee-evidences').upload(storagePath, file, {
+      contentType: file.type || 'application/octet-stream',
+      upsert: false,
+    });
+
+    if (upload.error) {
+      uploadErrors.push(file.name || safeName);
+      continue;
+    }
+
+    await supabase.from('employee_report_evidences').insert({
+      report_id: reportInsert.id,
+      storage_bucket: 'employee-evidences',
+      storage_path: storagePath,
+      file_name: file.name || safeName,
+      mime_type: file.type || null,
+      size_bytes: file.size || null,
+      uploaded_by: session.user.id,
+    });
+  }
+
+  if (evidenceFiles.length > 0 && uploadErrors.length === evidenceFiles.length) {
+    await supabase.from('employee_event_reports').delete().eq('id', reportInsert.id);
+    return { status: 'error', message: 'No pudimos subir evidencias. Intenta nuevamente.' };
+  }
+
+  await supabase
+    .from('team_leader_qc_checkpoints')
+    .update({
+      status: 'submitted',
+      report_id: reportInsert.id,
+      comment,
+      recorded_at: new Date().toISOString(),
+      submitted_by: session.user.id,
+      submitted_at: new Date().toISOString(),
+      review_notes: null,
+      reviewed_by: null,
+      reviewed_at: null,
+    })
+    .eq('id', checkpointRow.id);
+
+  await appendCheckpointLog(supabase, {
+    checkpointId: checkpointRow.id,
+    eventId,
+    assignmentId: assignment.id,
+    statusSnapshot: 'submitted',
+    actionKind: wasObserved ? 'resubmitted' : 'submitted',
+    actorProfileId: session.user.id,
+    note: comment,
+  });
+
+  revalidatePath('/empleados' as Route);
+  revalidatePath('/empleados/revision' as Route);
+  revalidatePath(`/eventos/${eventId}` as Route);
+
+  if (uploadErrors.length > 0) {
+    return {
+      status: 'success',
+      message: `Checkpoint enviado, pero faltaron algunas evidencias (${uploadErrors.join(', ')}).`,
+    };
+  }
+  return { status: 'success', message: 'Checkpoint QC enviado con evidencia. Queda listo para revisión supervisor/gerencial.' };
+}
+
+export async function reviewTeamLeaderQcCheckpointAction(
+  _previousState: EmployeeActionFormState,
+  formData: FormData,
+): Promise<EmployeeActionFormState> {
+  const checkpointId = String(formData.get('checkpoint_id') ?? '');
+  const reviewStatus = String(formData.get('review_status') ?? 'approved');
+  const reviewNote = normalizeOptionalString(formData.get('review_note'));
+  if (!checkpointId) return { status: 'error', message: 'No encontramos el checkpoint a revisar.' };
+  if (reviewStatus !== 'approved' && reviewStatus !== 'observed' && reviewStatus !== 'submitted') {
+    return { status: 'error', message: 'Estado de revisión de checkpoint inválido.' };
+  }
+
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  if (session.user.rol === 'empleado') return { status: 'error', message: 'Solo supervisor/gerencia puede revisar checkpoints.' };
+
+  const { data: checkpoint } = await supabase
+    .from('team_leader_qc_checkpoints')
+    .select('id, event_id, report_id, team_leader_assignment_id')
+    .eq('id', checkpointId)
+    .maybeSingle();
+  if (!checkpoint) return { status: 'error', message: 'Checkpoint no encontrado.' };
+
+  const nowIso = new Date().toISOString();
+  await supabase
+    .from('team_leader_qc_checkpoints')
+    .update({
+      status: reviewStatus,
+      review_notes: reviewNote,
+      reviewed_by: reviewStatus === 'submitted' ? null : session.user.id,
+      reviewed_at: reviewStatus === 'submitted' ? null : nowIso,
+    })
+    .eq('id', checkpointId);
+
+  await appendCheckpointLog(supabase, {
+    checkpointId,
+    eventId: checkpoint.event_id,
+    assignmentId: checkpoint.team_leader_assignment_id,
+    statusSnapshot: reviewStatus === 'submitted' ? 'submitted' : reviewStatus,
+    actionKind: reviewStatus === 'approved' ? 'approved' : reviewStatus === 'observed' ? 'observed' : 'returned_to_submitted',
+    actorProfileId: session.user.id,
+    note: reviewNote,
+  });
+
+  if (checkpoint.report_id) {
+    await supabase
+      .from('employee_event_reports')
+      .update({
+        review_status: reviewStatus === 'approved' ? 'aprobado' : reviewStatus === 'observed' ? 'observado' : 'pendiente_revision',
+        review_notes: reviewNote,
+        reviewed_by: reviewStatus === 'submitted' ? null : session.user.id,
+        reviewed_at: reviewStatus === 'submitted' ? null : nowIso,
+        correction_requested_at: reviewStatus === 'observed' ? nowIso : null,
+      })
+      .eq('id', checkpoint.report_id);
+  }
+
+  revalidatePath('/empleados/revision' as Route);
+  revalidatePath('/empleados' as Route);
+  revalidatePath(`/eventos/${checkpoint.event_id}` as Route);
+  return {
+    status: 'success',
+    message: reviewStatus === 'approved'
+      ? 'Checkpoint aprobado y trazado.'
+      : reviewStatus === 'observed'
+        ? 'Checkpoint observado. Team Leader verá tu nota.'
+        : 'Checkpoint regresado a estado enviado.',
+  };
+}
+
+export async function saveTeamLeaderBonusRecommendationAction(
+  _previousState: EmployeeActionFormState,
+  formData: FormData,
+): Promise<EmployeeActionFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  if (session.user.rol === 'empleado') return { status: 'error', message: 'Solo supervisor/gerencia puede registrar recomendación.' };
+
+  const eventId = String(formData.get('event_id') ?? '');
+  const assignmentId = String(formData.get('team_leader_assignment_id') ?? '');
+  const complianceStatus = normalizeComplianceStatus(String(formData.get('compliance_status') ?? 'con_observaciones'));
+  const recommendationStatus = normalizeRecommendationStatus(String(formData.get('recommendation_status') ?? 'pending'));
+  const suggestedAmount = normalizeOptionalString(formData.get('suggested_bonus_amount'));
+  const supervisorNote = normalizeOptionalString(formData.get('supervisor_note'));
+  const suggestedBonusAmount = suggestedAmount ? Number(suggestedAmount) : null;
+  if (!eventId || !assignmentId || !complianceStatus || !recommendationStatus) {
+    return { status: 'error', message: 'Datos inválidos para recomendación de bonus/compliance.' };
+  }
+  if (suggestedBonusAmount != null && (!Number.isFinite(suggestedBonusAmount) || suggestedBonusAmount < 0)) {
+    return { status: 'error', message: 'Monto sugerido inválido.' };
+  }
+
+  await supabase.from('team_leader_bonus_recommendations').upsert(
+    {
+      event_id: eventId,
+      team_leader_assignment_id: assignmentId,
+      compliance_status: complianceStatus,
+      recommendation_status: recommendationStatus,
+      suggested_bonus_amount: suggestedBonusAmount,
+      supervisor_note: supervisorNote,
+      recommended_by: session.user.id,
+      recommended_at: new Date().toISOString(),
+    },
+    { onConflict: 'event_id,team_leader_assignment_id' },
+  );
+
+  revalidatePath('/empleados/revision' as Route);
+  revalidatePath(`/eventos/${eventId}` as Route);
+  return { status: 'success', message: 'Recomendación manual de bonus/compliance guardada.' };
+}
+
+export async function finalizeTeamLeaderBonusDecisionAction(
+  _previousState: EmployeeActionFormState,
+  formData: FormData,
+): Promise<EmployeeActionFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  if (session.user.rol !== 'owner' && session.user.rol !== 'manager') {
+    return { status: 'error', message: 'Solo Owner/Main Office puede confirmar o rechazar bonus.' };
+  }
+
+  const recommendationId = String(formData.get('recommendation_id') ?? '');
+  const decisionStatus = normalizeFinalDecisionStatus(String(formData.get('final_decision_status') ?? 'pending'));
+  const amountRaw = normalizeOptionalString(formData.get('final_bonus_amount'));
+  const finalNote = normalizeOptionalString(formData.get('final_note'));
+  const finalBonusAmount = amountRaw ? Number(amountRaw) : null;
+  if (!recommendationId || !decisionStatus) return { status: 'error', message: 'Decisión final inválida.' };
+  if (finalBonusAmount != null && (!Number.isFinite(finalBonusAmount) || finalBonusAmount < 0)) {
+    return { status: 'error', message: 'Monto final inválido.' };
+  }
+
+  const { data: recommendation } = await supabase
+    .from('team_leader_bonus_recommendations')
+    .select('id, event_id')
+    .eq('id', recommendationId)
+    .maybeSingle();
+  if (!recommendation) return { status: 'error', message: 'No encontramos la recomendación a confirmar.' };
+
+  await supabase
+    .from('team_leader_bonus_recommendations')
+    .update({
+      final_decision_status: decisionStatus,
+      final_bonus_amount: decisionStatus === 'approved' ? finalBonusAmount : null,
+      final_note: finalNote,
+      decided_by: decisionStatus === 'pending' ? null : session.user.id,
+      decided_at: decisionStatus === 'pending' ? null : new Date().toISOString(),
+    })
+    .eq('id', recommendationId);
+
+  revalidatePath('/empleados/revision' as Route);
+  revalidatePath(`/eventos/${recommendation.event_id}` as Route);
+  return { status: 'success', message: 'Decisión final de bonus actualizada.' };
 }
 
 export async function reviewEmployeeEventReportAction(

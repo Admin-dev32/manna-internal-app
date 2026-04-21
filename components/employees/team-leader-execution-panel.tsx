@@ -4,6 +4,7 @@ import { useActionState, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 import { CheckCircle2, Circle, ClipboardList, Package, ShoppingCart, Truck } from 'lucide-react';
 
+import { TEAM_LEADER_QC_CHECKPOINT_LABELS, TEAM_LEADER_QC_CHECKPOINT_LOG_ACTION_LABELS, TEAM_LEADER_QC_CHECKPOINT_STATUS_LABELS } from '@/config/employees';
 import { AuthFeedback } from '@/components/auth/auth-feedback';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,15 +29,18 @@ export function TeamLeaderExecutionPanel({
   updateExecutionAction,
   toggleChecklistAction,
   submitCloseoutAction,
+  submitQcCheckpointAction,
 }: {
   context: TeamLeaderExecutionContext;
   updateExecutionAction: (state: EmployeeActionFormState, formData: FormData) => Promise<EmployeeActionFormState>;
   toggleChecklistAction: (state: EmployeeActionFormState, formData: FormData) => Promise<EmployeeActionFormState>;
   submitCloseoutAction: (state: EmployeeActionFormState, formData: FormData) => Promise<EmployeeActionFormState>;
+  submitQcCheckpointAction: (state: EmployeeActionFormState, formData: FormData) => Promise<EmployeeActionFormState>;
 }) {
   const [executionState, executionFormAction] = useActionState(updateExecutionAction, initialEmployeeActionFormState);
   const [checklistState, checklistFormAction] = useActionState(toggleChecklistAction, initialEmployeeActionFormState);
   const [closeoutState, closeoutFormAction] = useActionState(submitCloseoutAction, initialEmployeeActionFormState);
+  const [qcState, qcFormAction] = useActionState(submitQcCheckpointAction, initialEmployeeActionFormState);
   const [barFilter, setBarFilter] = useState<string>('all');
 
   const checklistDone = context.checklistItems.filter((item) => item.is_completed).length;
@@ -54,6 +58,7 @@ export function TeamLeaderExecutionPanel({
       : [...context.shoppingList, ...context.pickingList].filter((row) => row.requirement.source_template_id === barFilter)),
     [barFilter, context.pickingList, context.shoppingList],
   );
+  const recaptureQueue = context.qcCheckpoints.filter((item) => item.status === 'observed');
 
   return (
     <section className="space-y-4">
@@ -126,6 +131,79 @@ export function TeamLeaderExecutionPanel({
         <MiniStat icon={Package} label="Surtido" value={`${filteredPickingList.filter((r) => r.executionState?.picking_status === 'pulled').length}/${filteredPickingList.length}`} />
         <MiniStat icon={ClipboardList} label="Checklist" value={`${checklistDone}/${context.checklistItems.length}`} />
       </div>
+
+      <Card className="rounded-3xl">
+        <CardHeader>
+          <CardTitle className="text-lg">Quality Control · Checkpoints</CardTitle>
+          <CardDescription>Secuencia operativa de evidencia obligatoria para Team Leader en campo.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {recaptureQueue.length > 0 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm">
+              <p className="font-semibold text-amber-900">Cola de recapturas pendiente</p>
+              <p className="text-amber-800">Tienes {recaptureQueue.length} checkpoint(s) observado(s). Reenvía evidencia actualizada para volver a revisión.</p>
+              <ul className="mt-2 space-y-1 text-xs text-amber-900">
+                {recaptureQueue.map((item) => (
+                  <li key={`recapture-${item.id}`}>• {TEAM_LEADER_QC_CHECKPOINT_LABELS[item.checkpoint_key]}{item.review_notes ? ` — Nota: ${item.review_notes}` : ''}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {context.qcCheckpoints.map((checkpoint, index) => (
+            <form key={checkpoint.id} action={qcFormAction} className="space-y-2 rounded-2xl border bg-background p-3">
+              <input type="hidden" name="event_id" value={context.event.id} />
+              <input type="hidden" name="checkpoint_key" value={checkpoint.checkpoint_key} />
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold">{index + 1}. {TEAM_LEADER_QC_CHECKPOINT_LABELS[checkpoint.checkpoint_key]}</p>
+                <Badge variant={checkpoint.status === 'approved' ? 'success' : checkpoint.status === 'observed' ? 'warning' : checkpoint.status === 'submitted' ? 'secondary' : 'outline'}>
+                  {TEAM_LEADER_QC_CHECKPOINT_STATUS_LABELS[checkpoint.status]}
+                </Badge>
+              </div>
+              {checkpoint.latest_submission_kind === 'resubmitted' ? <p className="text-xs font-medium text-sky-700">Último envío: recaptura reenviada.</p> : null}
+              {checkpoint.recorded_at ? (
+                <p className="text-xs text-muted-foreground">
+                  Registrado: {new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(checkpoint.recorded_at))}
+                </p>
+              ) : null}
+              {checkpoint.comment ? <p className="text-xs text-muted-foreground">Último comentario: {checkpoint.comment}</p> : null}
+              {checkpoint.review_notes ? <p className="text-xs text-amber-700">Nota supervisor: {checkpoint.review_notes}</p> : null}
+              {checkpoint.reviewed_at ? (
+                <p className="text-xs text-muted-foreground">
+                  Revisado: {new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(checkpoint.reviewed_at))}
+                </p>
+              ) : null}
+              <Input name="checkpoint_comment" placeholder="Comentario opcional (incidencia, contexto, nota)." defaultValue="" />
+              <input
+                name="checkpoint_evidence_files"
+                type="file"
+                accept="image/*,application/pdf"
+                multiple
+                required
+                className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
+              />
+              <div className="flex justify-end">
+                <Button type="submit" size="sm">
+                  {checkpoint.status === 'observed' ? 'Reenviar recaptura' : 'Registrar checkpoint'}
+                </Button>
+              </div>
+              {checkpoint.history.length > 0 ? (
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-2 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Historial reciente</p>
+                  <ul className="mt-1 space-y-1">
+                    {checkpoint.history.slice(0, 4).map((log) => (
+                      <li key={log.id}>
+                        {TEAM_LEADER_QC_CHECKPOINT_LOG_ACTION_LABELS[log.action_kind]} · {new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(log.created_at))}
+                        {log.note ? ` · ${log.note}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </form>
+          ))}
+          <AuthFeedback state={qcState} />
+        </CardContent>
+      </Card>
 
       <Card className="rounded-3xl">
         <CardHeader>

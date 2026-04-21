@@ -1,27 +1,50 @@
 import { EmployeeReportsReviewBoard } from '@/components/employees/employee-reports-review-board';
 import { requireActiveSession, requirePermission } from '@/lib/auth/guards';
-import { discardEmployeeEvidenceAction, reviewEmployeeEventReportAction } from '@/services/employees/actions';
-import { getEmployeeReviewFilterOptions, getEmployeeReviewQueuePageData } from '@/services/employees/queries';
+import {
+  discardEmployeeEvidenceAction,
+  finalizeTeamLeaderBonusDecisionAction,
+  reviewEmployeeEventReportAction,
+  reviewTeamLeaderQcCheckpointAction,
+  saveTeamLeaderBonusRecommendationAction,
+} from '@/services/employees/actions';
+import {
+  getEmployeeReviewFilterOptions,
+  getEmployeeReviewQueuePageData,
+  getTeamLeaderBonusReviewQueuePageData,
+  getTeamLeaderQcReviewQueuePageData,
+} from '@/services/employees/queries';
 
 export default async function EmployeeReviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; reporter?: string; event?: string; recent_days?: string }>;
+  searchParams: Promise<{ status?: string; qc_status?: string; reporter?: string; event?: string; recent_days?: string }>;
 }) {
   await requirePermission('employees.view');
   const session = await requireActiveSession();
   if (!session.user || session.user.rol === 'empleado') return null;
 
   const params = await searchParams;
-  const [reviewQueue, filterOptions] = await Promise.all([
+  const [reviewQueue, qcReviewQueue, bonusReviewQueue, filterOptions] = await Promise.all([
     getEmployeeReviewQueuePageData({
       status: params.status,
       reporterProfileId: params.reporter,
       eventId: params.event,
       recentDays: params.recent_days,
     }),
+    getTeamLeaderQcReviewQueuePageData({
+      status: params.qc_status,
+      reporterProfileId: params.reporter,
+      eventId: params.event,
+      recentDays: params.recent_days,
+    }),
+    getTeamLeaderBonusReviewQueuePageData({
+      reporterProfileId: params.reporter,
+      eventId: params.event,
+      recentDays: params.recent_days,
+    }),
     getEmployeeReviewFilterOptions(),
   ]);
+  const canFinalizeBonus = session.user.rol === 'owner' || session.user.rol === 'manager';
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -34,6 +57,13 @@ export default async function EmployeeReviewPage({
           <option value="observado">Observado</option>
           <option value="requiere_correccion">Requiere corrección</option>
           <option value="bonus_liberado">Bonus liberado</option>
+        </select>
+        <select name="qc_status" defaultValue={params.qc_status ?? 'todos'} className="rounded-xl border px-3 py-2 text-sm">
+          <option value="todos">QC: todos los estados</option>
+          <option value="submitted">QC: enviado</option>
+          <option value="approved">QC: aprobado</option>
+          <option value="observed">QC: observado</option>
+          <option value="pending">QC: pendiente</option>
         </select>
         <select name="reporter" defaultValue={params.reporter ?? 'todos'} className="rounded-xl border px-3 py-2 text-sm">
           <option value="todos">Todos los empleados</option>
@@ -63,7 +93,13 @@ export default async function EmployeeReviewPage({
       </form>
       <EmployeeReportsReviewBoard
         reports={reviewQueue}
+        qcCheckpoints={qcReviewQueue}
+        bonusReviews={bonusReviewQueue}
         reviewAction={reviewEmployeeEventReportAction}
+        reviewQcCheckpointAction={reviewTeamLeaderQcCheckpointAction}
+        saveBonusRecommendationAction={saveTeamLeaderBonusRecommendationAction}
+        finalizeBonusDecisionAction={finalizeTeamLeaderBonusDecisionAction}
+        canFinalizeBonus={canFinalizeBonus}
         discardEvidenceAction={discardEmployeeEvidenceAction}
       />
     </div>

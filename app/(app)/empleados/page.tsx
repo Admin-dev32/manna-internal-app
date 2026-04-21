@@ -9,6 +9,7 @@ import {
   markEmployeeUnavailableAction,
   respondToEventAssignmentAction,
   submitEmployeeEventReportAction,
+  submitTeamLeaderQcCheckpointAction,
   submitTeamLeaderCloseoutAction,
   toggleTeamLeaderChecklistItemAction,
   updateTeamLeaderExecutionStateAction,
@@ -36,6 +37,7 @@ export default async function EmpleadosPage() {
           updateExecutionAction={updateTeamLeaderExecutionStateAction}
           toggleChecklistAction={toggleTeamLeaderChecklistItemAction}
           submitCloseoutAction={submitTeamLeaderCloseoutAction}
+          submitQcCheckpointAction={submitTeamLeaderQcCheckpointAction}
         />
       ) : null}
       {appData.assistantLight ? (
