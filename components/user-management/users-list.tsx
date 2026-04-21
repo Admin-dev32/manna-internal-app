@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ROLE_LABELS } from '@/config/roles';
+import { BASE_ROLE_LABELS, OPERATIONAL_PROFILE_LABELS } from '@/config/user-access-presets';
 import type { ManagedUserListItem } from '@/types/user-management';
 
 interface UsersListProps {
@@ -97,7 +97,8 @@ export function UsersList({ users, searchTerm }: UsersListProps) {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={user.role === 'owner' ? 'default' : 'secondary'}>{ROLE_LABELS[user.role]}</Badge>
+                        <Badge variant={user.base_role === 'owner' ? 'default' : 'secondary'}>{BASE_ROLE_LABELS[user.base_role]}</Badge>
+                        <Badge className="ml-2" variant="outline">{OPERATIONAL_PROFILE_LABELS[user.operational_profile]}</Badge>
                       </TableCell>
                       <TableCell>
                         <Badge variant={user.is_active ? 'success' : 'warning'}>{user.is_active ? 'Activo' : 'Inactivo'}</Badge>

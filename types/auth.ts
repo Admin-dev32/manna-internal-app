@@ -1,5 +1,7 @@
 export const USER_ROLES = ['owner', 'manager', 'empleado'] as const;
 export const USER_STATUSES = ['activo', 'inactivo'] as const;
+export const SYSTEM_BASE_ROLES = ['owner', 'supervisor', 'employee'] as const;
+export const OPERATIONAL_PROFILES = ['team_leader', 'assistant', 'general_staff'] as const;
 export const PERMISSION_KEYS = [
   'dashboard.view',
   'crm.view',
@@ -38,6 +40,8 @@ export const PERMISSION_KEYS = [
 
 export type UserRole = (typeof USER_ROLES)[number];
 export type UserStatus = (typeof USER_STATUSES)[number];
+export type SystemBaseRole = (typeof SYSTEM_BASE_ROLES)[number];
+export type OperationalProfile = (typeof OPERATIONAL_PROFILES)[number];
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
 
 export interface AppUser {
@@ -48,6 +52,8 @@ export interface AppUser {
   estado: UserStatus;
   permissions: PermissionKey[];
   isSiteOwner: boolean;
+  baseRole: SystemBaseRole;
+  operationalProfile: OperationalProfile;
 }
 
 export interface SessionContext {
@@ -66,8 +72,10 @@ export interface ProfileRecord {
 export interface CurrentUserAccessContext {
   user_id: string;
   role: UserRole;
+  base_role: SystemBaseRole;
   is_active: boolean;
   is_site_owner: boolean;
+  operational_profile: OperationalProfile;
   permissions: PermissionKey[];
 }
 

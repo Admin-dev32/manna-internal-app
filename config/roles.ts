@@ -2,7 +2,7 @@ import type { PermissionKey, UserRole } from '@/types/auth';
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   owner: 'Propietario',
-  manager: 'Gerencia',
+  manager: 'Supervisor (Gerencia)',
   empleado: 'Empleado',
 };
 

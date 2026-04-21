@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { normalizeOperationalProfile, toSystemBaseRole } from '@/lib/auth/roles';
 import type { PermissionKey } from '@/types/auth';
-import type { ManagedUserDetail, ManagedUserListItem } from '@/types/user-management';
+import type { ManagedUserDetail, ManagedUserListItem, ManagedUserPermissionBreakdownItem } from '@/types/user-management';
 
 function normalizePermissionList(value: unknown): PermissionKey[] {
   if (!Array.isArray(value)) {
@@ -16,6 +17,10 @@ function mapManagedUserListItem(value: Record<string, unknown>): ManagedUserList
     full_name: typeof value.full_name === 'string' ? value.full_name : null,
     email: typeof value.email === 'string' ? value.email : 'sin-correo@manna.local',
     role: value.role === 'owner' || value.role === 'manager' || value.role === 'empleado' ? value.role : 'empleado',
+    base_role: value.base_role === 'owner' || value.base_role === 'supervisor' || value.base_role === 'employee'
+      ? value.base_role
+      : toSystemBaseRole(value.role),
+    operational_profile: normalizeOperationalProfile(value.operational_profile),
     is_active: value.is_active === true,
     is_site_owner: value.is_site_owner === true,
     invitation_pending: value.invitation_pending === true,
@@ -34,7 +39,31 @@ function mapManagedUserDetail(value: Record<string, unknown>): ManagedUserDetail
   return {
     ...mapManagedUserListItem(value),
     effective_permissions: normalizePermissionList(value.effective_permissions),
+    permission_breakdown: [],
   };
+}
+
+function normalizePermissionBreakdownList(value: unknown): ManagedUserPermissionBreakdownItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const record = item as Record<string, unknown>;
+      const permissionKey = String(record.permission_key ?? '');
+      if (!permissionKey) return null;
+
+      return {
+        permission_key: permissionKey as ManagedUserPermissionBreakdownItem['permission_key'],
+        from_role: record.from_role === true,
+        from_operational_profile: record.from_operational_profile === true,
+        from_override_grant: record.from_override_grant === true,
+        from_override_revoke: record.from_override_revoke === true,
+        is_effective: record.is_effective === true,
+      } satisfies ManagedUserPermissionBreakdownItem;
+    })
+    .filter((item): item is ManagedUserPermissionBreakdownItem => Boolean(item));
 }
 
 export async function getManagedUsers(searchTerm?: string) {
@@ -60,13 +89,26 @@ export async function getManagedUserDetail(userId: string) {
     return null;
   }
 
-  const { data, error } = await supabase.rpc('admin_get_user_detail', {
-    target_user_id: userId,
-  });
+  const [{ data: detailData, error: detailError }, { data: breakdownData, error: breakdownError }] = await Promise.all([
+    supabase.rpc('admin_get_user_detail', {
+      target_user_id: userId,
+    }),
+    supabase.rpc('admin_get_user_permission_breakdown', {
+      target_user_id: userId,
+    }),
+  ]);
 
-  if (error || !Array.isArray(data) || data.length === 0) {
+  if (detailError || !Array.isArray(detailData) || detailData.length === 0) {
     return null;
   }
 
-  return mapManagedUserDetail(data[0] as Record<string, unknown>);
+  const mappedDetail = mapManagedUserDetail(detailData[0] as Record<string, unknown>);
+  const mappedBreakdown = breakdownError ? [] : normalizePermissionBreakdownList(breakdownData);
+  const effectiveFromBreakdown = mappedBreakdown.filter((item) => item.is_effective).map((item) => item.permission_key);
+
+  return {
+    ...mappedDetail,
+    permission_breakdown: mappedBreakdown,
+    effective_permissions: mappedBreakdown.length > 0 ? effectiveFromBreakdown : mappedDetail.effective_permissions,
+  };
 }
