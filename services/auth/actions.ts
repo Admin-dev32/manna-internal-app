@@ -227,12 +227,19 @@ export async function updatePasswordAction(
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  if (userError || !user) {
+    console.warn('[auth] updatePasswordAction: recovery session missing or invalid', {
+      hasUser: Boolean(user),
+      error: userError?.message ?? null,
+      flow,
+    });
+
     return {
       status: 'error',
-      message: 'Tu enlace de recuperación ya no es válido o expiró. Solicita uno nuevo para continuar.',
+      message: 'No encontramos una sesión válida de recuperación. Abre de nuevo el enlace más reciente de tu correo o solicita uno nuevo.',
     };
   }
 
