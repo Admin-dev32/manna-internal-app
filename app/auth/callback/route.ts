@@ -140,24 +140,27 @@ export async function GET(request: NextRequest) {
     return redirectResponse;
   }
 
-  if (code) {
-    logCallbackDiagnostics('branch_exchange_code_for_session', {
-      hasCode,
-      hasTokenHash,
-      type: otpType ?? null,
-      flow: resolvedFlow ?? null,
-    });
+  if (isPasswordRecovery) {
+    if (tokenHash && otpType) {
+      logCallbackDiagnostics('branch_verify_otp', {
+        hasCode,
+        hasTokenHash,
+        type: otpType,
+        flow: resolvedFlow ?? null,
+      });
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    logCallbackDiagnostics('exchange_code_result', {
-      ok: !error,
-      errorMessage: error?.message ?? null,
-      errorStatus: 'status' in (error ?? {}) ? (error as { status?: number }).status ?? null : null,
-      cookieCountAfterAuth: response.cookies.getAll().length,
-    });
+      const { error } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: otpType,
+      });
+      logCallbackDiagnostics('verify_otp_result', {
+        ok: !error,
+        errorMessage: error?.message ?? null,
+        errorStatus: 'status' in (error ?? {}) ? (error as { status?: number }).status ?? null : null,
+        cookieCountAfterAuth: response.cookies.getAll().length,
+      });
 
-    if (error) {
-      if (isPasswordRecovery) {
+      if (error) {
         return redirectToPasswordUpdate(
           origin,
           'error',
@@ -168,53 +171,30 @@ export async function GET(request: NextRequest) {
           response,
         );
       }
+    } else if (code) {
+      logCallbackDiagnostics('branch_invalid_recovery_code_only', {
+        hasCode,
+        hasTokenHash,
+        type: otpType ?? null,
+        flow: resolvedFlow ?? null,
+      });
 
-      return redirectToLogin(origin, 'No se pudo completar la sesión. Solicita un acceso nuevo.');
-    }
-  } else if (tokenHash && otpType) {
-    logCallbackDiagnostics('branch_verify_otp', {
-      hasCode,
-      hasTokenHash,
-      type: otpType,
-      flow: resolvedFlow ?? null,
-    });
+      return redirectToPasswordUpdate(
+        origin,
+        'error',
+        resolvedFlow === 'invite'
+          ? 'La invitación llegó con un formato no compatible. Solicita al administrador un enlace nuevo.'
+          : 'El enlace de recuperación llegó con un formato no compatible. Solicita uno nuevo.',
+        resolvedFlow,
+      );
+    } else {
+      logCallbackDiagnostics('branch_missing_recovery_otp', {
+        hasCode,
+        hasTokenHash,
+        type: otpType ?? null,
+        flow: resolvedFlow ?? null,
+      });
 
-    const { error } = await supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: otpType,
-    });
-    logCallbackDiagnostics('verify_otp_result', {
-      ok: !error,
-      errorMessage: error?.message ?? null,
-      errorStatus: 'status' in (error ?? {}) ? (error as { status?: number }).status ?? null : null,
-      cookieCountAfterAuth: response.cookies.getAll().length,
-    });
-
-    if (error) {
-      if (isPasswordRecovery) {
-        return redirectToPasswordUpdate(
-          origin,
-          'error',
-          resolvedFlow === 'invite'
-            ? 'No pudimos validar tu invitación. Solicita al administrador que la reenvíe.'
-            : 'No pudimos validar tu enlace de recuperación. Solicita uno nuevo.',
-          resolvedFlow,
-          response,
-        );
-      }
-
-      return redirectToLogin(origin, 'No se pudo completar la sesión. Solicita un acceso nuevo.');
-    }
-  } else {
-    logCallbackDiagnostics('branch_missing_credential', {
-      hasCode,
-      hasTokenHash,
-      type: otpType ?? null,
-      flow: resolvedFlow ?? null,
-      isPasswordRecovery,
-    });
-
-    if (isPasswordRecovery) {
       return redirectToPasswordUpdate(
         origin,
         'warning',
@@ -223,10 +203,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return redirectResponse;
-  }
-
-  if (isPasswordRecovery) {
     const {
       data: { user },
       error: getUserError,
@@ -263,6 +239,37 @@ export async function GET(request: NextRequest) {
       resolvedFlow,
       response,
     );
+  }
+
+  if (code) {
+    logCallbackDiagnostics('branch_exchange_code_for_session_non_recovery', {
+      hasCode,
+      hasTokenHash,
+      type: otpType ?? null,
+      flow: resolvedFlow ?? null,
+    });
+
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    logCallbackDiagnostics('exchange_code_result', {
+      ok: !error,
+      errorMessage: error?.message ?? null,
+      errorStatus: 'status' in (error ?? {}) ? (error as { status?: number }).status ?? null : null,
+      cookieCountAfterAuth: response.cookies.getAll().length,
+    });
+
+    if (error) {
+      return redirectToLogin(origin, 'No se pudo completar la sesión. Solicita un acceso nuevo.');
+    }
+  } else {
+    logCallbackDiagnostics('branch_missing_credential', {
+      hasCode,
+      hasTokenHash,
+      type: otpType ?? null,
+      flow: resolvedFlow ?? null,
+      isPasswordRecovery: false,
+    });
+
+    return redirectResponse;
   }
 
   return response;
