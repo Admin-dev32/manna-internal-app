@@ -3,6 +3,10 @@ import type { EmailOtpType } from '@supabase/supabase-js';
 
 import { createSupabaseRouteHandlerClient } from '@/lib/supabase/route';
 
+function logCallbackDiagnostics(event: string, payload: Record<string, unknown>) {
+  console.info(`[auth/callback] ${event}`, payload);
+}
+
 function sanitizeNext(value: string | null) {
   if (!value || !value.startsWith('/')) {
     return '/dashboard';
@@ -70,6 +74,8 @@ function resolveFlow(flow: 'invite' | 'recovery' | null, otpType: EmailOtpType |
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const origin = requestUrl.origin;
+  const host = requestUrl.host;
+  const pathname = requestUrl.pathname;
   const code = requestUrl.searchParams.get('code');
   const tokenHash = requestUrl.searchParams.get('token_hash');
   const next = sanitizeNext(requestUrl.searchParams.get('next'));
@@ -77,10 +83,30 @@ export async function GET(request: NextRequest) {
   const otpType = sanitizeOtpType(requestUrl.searchParams.get('type'));
   const resolvedFlow = resolveFlow(flow, otpType);
   const errorDescription = requestUrl.searchParams.get('error_description');
+  const hasCode = Boolean(code);
+  const hasTokenHash = Boolean(tokenHash);
 
   const isPasswordRecovery = next === '/actualizar-clave' || resolvedFlow !== null;
+  logCallbackDiagnostics('request_received', {
+    origin,
+    host,
+    pathname,
+    hasCode,
+    hasTokenHash,
+    type: otpType ?? null,
+    flow: flow ?? null,
+    resolvedFlow: resolvedFlow ?? null,
+    hasErrorDescription: Boolean(errorDescription),
+    isPasswordRecovery,
+  });
 
   if (errorDescription) {
+    logCallbackDiagnostics('error_description_present', {
+      isPasswordRecovery,
+      errorDescription,
+      resolvedFlow: resolvedFlow ?? null,
+    });
+
     if (isPasswordRecovery) {
       return redirectToPasswordUpdate(
         origin,
@@ -98,6 +124,11 @@ export async function GET(request: NextRequest) {
   const redirectResponse = NextResponse.redirect(new URL(next, origin));
   const { supabase, response } = createSupabaseRouteHandlerClient(request, redirectResponse);
   if (!supabase) {
+    logCallbackDiagnostics('missing_supabase_client', {
+      isPasswordRecovery,
+      hasSupabaseCredentials: false,
+    });
+
     if (isPasswordRecovery) {
       return redirectToPasswordUpdate(
         origin,
@@ -110,7 +141,20 @@ export async function GET(request: NextRequest) {
   }
 
   if (code) {
+    logCallbackDiagnostics('branch_exchange_code_for_session', {
+      hasCode,
+      hasTokenHash,
+      type: otpType ?? null,
+      flow: resolvedFlow ?? null,
+    });
+
     const { error } = await supabase.auth.exchangeCodeForSession(code);
+    logCallbackDiagnostics('exchange_code_result', {
+      ok: !error,
+      errorMessage: error?.message ?? null,
+      errorStatus: 'status' in (error ?? {}) ? (error as { status?: number }).status ?? null : null,
+      cookieCountAfterAuth: response.cookies.getAll().length,
+    });
 
     if (error) {
       if (isPasswordRecovery) {
@@ -128,9 +172,22 @@ export async function GET(request: NextRequest) {
       return redirectToLogin(origin, 'No se pudo completar la sesión. Solicita un acceso nuevo.');
     }
   } else if (tokenHash && otpType) {
+    logCallbackDiagnostics('branch_verify_otp', {
+      hasCode,
+      hasTokenHash,
+      type: otpType,
+      flow: resolvedFlow ?? null,
+    });
+
     const { error } = await supabase.auth.verifyOtp({
       token_hash: tokenHash,
       type: otpType,
+    });
+    logCallbackDiagnostics('verify_otp_result', {
+      ok: !error,
+      errorMessage: error?.message ?? null,
+      errorStatus: 'status' in (error ?? {}) ? (error as { status?: number }).status ?? null : null,
+      cookieCountAfterAuth: response.cookies.getAll().length,
     });
 
     if (error) {
@@ -149,6 +206,14 @@ export async function GET(request: NextRequest) {
       return redirectToLogin(origin, 'No se pudo completar la sesión. Solicita un acceso nuevo.');
     }
   } else {
+    logCallbackDiagnostics('branch_missing_credential', {
+      hasCode,
+      hasTokenHash,
+      type: otpType ?? null,
+      flow: resolvedFlow ?? null,
+      isPasswordRecovery,
+    });
+
     if (isPasswordRecovery) {
       return redirectToPasswordUpdate(
         origin,
@@ -168,6 +233,12 @@ export async function GET(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (getUserError || !user) {
+      logCallbackDiagnostics('recovery_user_lookup_failed', {
+        hasUser: Boolean(user),
+        userErrorMessage: getUserError?.message ?? null,
+        cookieCountBeforeRecoveryRedirect: response.cookies.getAll().length,
+      });
+
       return redirectToPasswordUpdate(
         origin,
         'error',
@@ -176,6 +247,12 @@ export async function GET(request: NextRequest) {
         response,
       );
     }
+
+    logCallbackDiagnostics('recovery_session_ready', {
+      hasUser: true,
+      cookieCountBeforeRecoveryRedirect: response.cookies.getAll().length,
+      resolvedFlow: resolvedFlow ?? null,
+    });
 
     return redirectToPasswordUpdate(
       origin,
