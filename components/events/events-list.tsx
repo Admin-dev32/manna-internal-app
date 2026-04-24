@@ -3,12 +3,13 @@ import Link from 'next/link';
 import { CalendarClock, ChevronLeft, ChevronRight, Filter, List, TriangleAlert } from 'lucide-react';
 
 import { EventStatusBadge } from '@/components/events/event-status-badge';
+import { ModulePageLayout } from '@/components/layout/module-page-layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { EVENT_STATUS_LABELS } from '@/config/events';
 import type { ClientRecord } from '@/types/clients';
-import type { EventChecklistProgress, EventRecord, EventStatus } from '@/types/events';
+import type { EventChecklistProgress, EventRecord } from '@/types/events';
 import type { QuoteRecord } from '@/types/quotes';
 
 function formatDate(value: string) {
@@ -105,17 +106,12 @@ export function EventsList({
   const nextMonth = addMonths(month, 1);
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="rounded-[2rem] border border-border bg-slate-950 p-6 text-white shadow-panel sm:p-8">
-        <div className="flex flex-wrap items-center gap-3">
-          <Badge variant="secondary">Operación</Badge>
-          <Badge className="bg-white/10 text-white hover:bg-white/10">Event Operations Core</Badge>
-        </div>
-        <h1 className="mt-4 text-3xl font-semibold">Eventos operativos</h1>
-        <p className="mt-2 max-w-3xl text-sm text-slate-300">
-          Vista operativa para coordinar eventos reales, revisar checklist, detectar próximos compromisos y entrar rápido al detalle.
-        </p>
-      </section>
+    <ModulePageLayout
+      badge="Operación"
+      title="Eventos"
+      description="Coordinación de eventos confirmados con acceso rápido a checklist, tareas y señales operativas."
+      breadcrumbs={[{ label: 'Operación' }, { label: 'Eventos' }]}
+    >
 
       <div className="grid gap-4 lg:grid-cols-3">
         <SummaryCard title="Eventos visibles" value={String(events.length)} hint="Según filtros aplicados" />
@@ -336,7 +332,7 @@ export function EventsList({
           </CardContent>
         </Card>
       )}
-    </div>
+    </ModulePageLayout>
   );
 }
 

@@ -9,16 +9,15 @@ import { ReminderAreaBadge, ReminderSeverityBadge, ReminderTimingBadge } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { safeFormatDateTime } from '@/lib/utils/date';
 import { markAllInternalMentionNotificationsReadAction, markInternalMentionNotificationReadAction } from '@/services/internal-communication/actions';
 import type { ReminderArea, ReminderCenterData } from '@/types/reminders';
 
 function formatDateTime(value: string | null) {
-  if (!value) return 'Sin fecha específica';
-
-  return new Intl.DateTimeFormat('es-MX', {
-    dateStyle: 'medium',
-    timeStyle: value.includes('T') ? 'short' : undefined,
-  }).format(new Date(value));
+  return safeFormatDateTime(value, {
+    fallback: 'Sin fecha específica',
+    timeStyle: value?.includes('T') ? 'short' : undefined,
+  });
 }
 
 const SECTION_ORDER: ReminderArea[] = ['lead', 'task', 'pre_event', 'event', 'communication'];
