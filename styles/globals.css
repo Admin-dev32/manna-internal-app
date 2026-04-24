@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light;
   --background: 220 33% 98%;
   --foreground: 222 47% 11%;
   --card: 0 0% 100%;
@@ -33,25 +34,26 @@
 }
 
 .dark {
-  --background: 222 47% 8%;
-  --foreground: 210 40% 96%;
-  --card: 222 47% 11%;
-  --card-foreground: 210 40% 96%;
-  --popover: 222 47% 11%;
-  --popover-foreground: 210 40% 96%;
-  --primary: 160 84% 38%;
-  --primary-foreground: 160 30% 8%;
-  --secondary: 217 33% 17%;
+  color-scheme: dark;
+  --background: 224 38% 10%;
+  --foreground: 210 40% 98%;
+  --card: 222 32% 13%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222 32% 13%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 160 72% 44%;
+  --primary-foreground: 160 40% 10%;
+  --secondary: 217 25% 18%;
   --secondary-foreground: 210 40% 96%;
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20% 75%;
-  --accent: 217 33% 20%;
-  --accent-foreground: 210 40% 96%;
-  --destructive: 0 72% 45%;
+  --muted: 217 23% 18%;
+  --muted-foreground: 215 20% 74%;
+  --accent: 217 22% 22%;
+  --accent-foreground: 210 40% 97%;
+  --destructive: 0 70% 43%;
   --destructive-foreground: 0 0% 98%;
-  --border: 217 24% 22%;
-  --input: 217 24% 22%;
-  --ring: 160 84% 40%;
+  --border: 216 22% 26%;
+  --input: 216 22% 26%;
+  --ring: 160 72% 44%;
 }
 
 * {
