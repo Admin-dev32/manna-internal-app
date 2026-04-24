@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useActionState, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarClock, Clock3, MapPin, Search, Users } from 'lucide-react';
 
+import { PaymentStatusBadge } from '@/components/finance/payment-status-badge';
 import { PreEventStatusBadge } from '@/components/pre-events/pre-event-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,21 +15,34 @@ import { preEventStatusOptions } from '@/config/pre-events';
 import { initialPreEventFormState } from '@/services/pre-events/form-state';
 import { quickUpdatePreEventAction } from '@/services/pre-events/actions';
 import type { PreEventFormState } from '@/services/pre-events/form-state';
+import { getPaymentStatus } from '@/lib/finance/payment-status';
 import { cn } from '@/lib/utils';
 import type { ClientRecord } from '@/types/clients';
+import type { InvoiceRecord } from '@/types/invoices';
+import type { PaymentLinkRecord } from '@/types/payments';
 import type { PreEventRecord, PreEventStatus } from '@/types/pre-events';
 import type { QuoteRecord } from '@/types/quotes';
 
 interface PreEventsOperationsBoardProps {
   preEvents: PreEventRecord[];
   clients: Record<string, ClientRecord>;
-  quotes: Record<string, Pick<QuoteRecord, 'id' | 'status'>>;
+  quotes: Record<string, Pick<QuoteRecord, 'id' | 'status' | 'total_amount' | 'expected_deposit' | 'estimated_balance'>>;
+  latestInvoiceByQuoteId: Record<string, InvoiceRecord | null>;
+  paymentLinksByPreEventId: Record<string, PaymentLinkRecord[]>;
 }
 
 type DateFilter = 'todas' | 'sin_fecha' | 'proximas_7_dias' | 'este_mes';
 
 function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(new Date(value)) : 'Pendiente';
+}
+
+
+function formatMoney(value: number | string | null) {
+  if (value === null || value === undefined || value === '') return 'N/D';
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return String(value);
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(parsed);
 }
 
 function daysUntil(value: string | null) {
@@ -65,7 +79,7 @@ function getMissingFields(preEvent: PreEventRecord) {
   return missing;
 }
 
-export function PreEventsOperationsBoard({ preEvents, clients, quotes }: PreEventsOperationsBoardProps) {
+export function PreEventsOperationsBoard({ preEvents, clients, quotes, latestInvoiceByQuoteId, paymentLinksByPreEventId }: PreEventsOperationsBoardProps) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'todos' | PreEventStatus>('todos');
   const [dateFilter, setDateFilter] = useState<DateFilter>('todas');
@@ -174,6 +188,15 @@ export function PreEventsOperationsBoard({ preEvents, clients, quotes }: PreEven
               const client = clients[preEvent.client_id];
               const quote = quotes[preEvent.source_quote_id];
               const missingFields = getMissingFields(preEvent);
+              const quoteFinancials = quotes[preEvent.source_quote_id];
+              const paymentStatus = getPaymentStatus({
+                preEventStatus: preEvent.status,
+                quoteTotalAmount: quoteFinancials?.total_amount ?? null,
+                expectedDeposit: quoteFinancials?.expected_deposit ?? null,
+                estimatedBalance: quoteFinancials?.estimated_balance ?? null,
+                invoices: latestInvoiceByQuoteId[preEvent.source_quote_id] ? [latestInvoiceByQuoteId[preEvent.source_quote_id]!] : [],
+                paymentLinks: paymentLinksByPreEventId[preEvent.id] ?? [],
+              });
               const upcoming = isUpcoming(preEvent.confirmed_date);
 
               return (
@@ -183,6 +206,7 @@ export function PreEventsOperationsBoard({ preEvents, clients, quotes }: PreEven
                       <div className="flex flex-wrap items-center gap-2">
                         <PreEventStatusBadge status={preEvent.status} />
                         {quote ? <QuoteStatusBadge status={quote.status} /> : null}
+                        <PaymentStatusBadge result={paymentStatus} />
                         {upcoming ? <SignalPill label="Próxima" tone="info" /> : null}
                         {!preEvent.confirmed_date ? <SignalPill label="Sin fecha" tone="danger" /> : null}
                         {missingFields.length > 0 ? <SignalPill label={`Pendiente: ${missingFields.join(', ')}`} tone="warning" /> : null}
@@ -193,6 +217,9 @@ export function PreEventsOperationsBoard({ preEvents, clients, quotes }: PreEven
                         <p className="text-lg font-semibold text-foreground">{client?.full_name ?? 'Cliente ligado'}</p>
                         <p className="text-sm text-muted-foreground">
                           Cotización origen: {quote ? `#${quote.id.slice(0, 8)}` : 'No disponible'} · Fecha: {formatDate(preEvent.confirmed_date)} · Hora: {preEvent.confirmed_time ?? 'Pendiente'}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Total esperado: {formatMoney(paymentStatus.totalExpected)} · Balance pendiente: {formatMoney(paymentStatus.amountDue)}
                         </p>
                       </div>
 

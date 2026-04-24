@@ -135,6 +135,7 @@ export interface FinancialExpenseRecord {
   receipt_file_name: string | null;
   receipt_storage_bucket: string | null;
   receipt_storage_path: string | null;
+  receipt_signed_url?: string | null;
   receipt_metadata: Record<string, unknown>;
   submitted_at: string | null;
   approved_by: string | null;

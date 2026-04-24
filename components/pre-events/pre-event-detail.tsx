@@ -4,6 +4,11 @@ import Link from 'next/link';
 import { createEventFromPreEventAction } from '@/services/events/actions';
 import { createPreEventPaymentLinkAction, syncPreEventToGoogleCalendarAction } from '@/services/pre-events/actions';
 import { FinancialSummaryCard } from '@/components/finance/financial-summary-card';
+import { PaymentStatusBadge } from '@/components/finance/payment-status-badge';
+import { BookingStatusTimeline } from '@/components/pre-events/booking-status-timeline';
+import { InvoiceLikeSummary } from '@/components/pre-events/invoice-like-summary';
+import { PaymentLinksPanel } from '@/components/pre-events/payment-links-panel';
+import { PaymentSummaryCard } from '@/components/pre-events/payment-summary-card';
 import { PreEventCalendarSyncCard } from '@/components/pre-events/pre-event-calendar-sync-card';
 import { PreEventPaymentLinksCard } from '@/components/pre-events/pre-event-payment-links-card';
 import { PreEventStatusBadge } from '@/components/pre-events/pre-event-status-badge';
@@ -13,6 +18,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ClientRecord } from '@/types/clients';
 import type { EventFinanceSnapshot, EventRecord } from '@/types/events';
+import { getPaymentStatus } from '@/lib/finance/payment-status';
+import type { InvoiceRecord } from '@/types/invoices';
 import type { LeadProfileOption, LeadRecord } from '@/types/leads';
 import type {
   EventOperationalTemplateApplicationRecord,
@@ -55,6 +62,7 @@ export function PreEventDetail({
   financeSummary,
   canViewFinance,
   calendarSync,
+  latestInvoice,
 }: {
   preEvent: PreEventRecord;
   client: ClientRecord;
@@ -81,18 +89,28 @@ export function PreEventDetail({
   financeSummary: EventFinanceSnapshot | null;
   canViewFinance: boolean;
   calendarSync: EventCalendarSyncRecord | null;
+  latestInvoice: InvoiceRecord | null;
 }) {
   const pendingItems = getPendingItems(preEvent);
   const readyState = getPreEventReadyState(preEvent);
   const paymentLinkAction = createPreEventPaymentLinkAction.bind(null, preEvent.id);
   const calendarSyncAction = syncPreEventToGoogleCalendarAction.bind(null, preEvent.id);
   const calendarRequirements = validatePreEventCalendarRequirements(preEvent, client);
+  const paymentStatus = getPaymentStatus({
+    preEventStatus: preEvent.status,
+    quoteTotalAmount: quote.total_amount,
+    expectedDeposit: quote.expected_deposit,
+    estimatedBalance: quote.estimated_balance,
+    invoices: latestInvoice ? [latestInvoice] : [],
+    paymentLinks,
+  });
 
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-[2rem] border border-border bg-slate-950 p-6 text-white shadow-panel sm:p-8">
         <div className="flex flex-wrap items-center gap-3">
           <PreEventStatusBadge status={preEvent.status} />
+          <PaymentStatusBadge result={paymentStatus} />
           <span className="rounded-full bg-white/10 px-3 py-1 text-sm">Cliente: {client.full_name}</span>
         </div>
         <div className="mt-4">
@@ -119,6 +137,20 @@ export function PreEventDetail({
             <Link href={`/clientes/${client.id}` as Route}>Volver al cliente</Link>
           </Button>
         </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <PaymentSummaryCard totalExpected={quote.total_amount} expectedDeposit={quote.expected_deposit} paymentStatus={paymentStatus} />
+        <InvoiceLikeSummary client={client} quote={quote} invoice={latestInvoice} linkedEvent={linkedEvent} />
+        <PaymentLinksPanel paymentLinks={paymentLinks} />
+        <BookingStatusTimeline
+          quote={quote}
+          preEvent={preEvent}
+          latestInvoice={latestInvoice}
+          paymentLinks={paymentLinks}
+          linkedEvent={linkedEvent}
+          paymentStatus={paymentStatus}
+        />
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
