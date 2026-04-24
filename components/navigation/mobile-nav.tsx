@@ -5,7 +5,7 @@ import { X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { APP_CONFIG } from '@/config/app';
-import { mainNavigationItems } from '@/config/navigation';
+import { mainNavigationItems, NAVIGATION_SECTION_LABELS, type NavigationSectionKey } from '@/config/navigation';
 import { hasPermission } from '@/lib/auth/permissions';
 import { cn } from '@/lib/utils';
 import type { AppUser } from '@/types/auth';
@@ -20,6 +20,14 @@ interface MobileNavProps {
 
 export function MobileNav({ open, onClose, user }: MobileNavProps) {
   const visibleNavigationItems = user ? mainNavigationItems.filter((item) => hasPermission(user, item.permission)) : [];
+  const sectionOrder: NavigationSectionKey[] = ['comercial', 'operacion', 'coordinacion', 'administracion'];
+  const groupedNavigation = sectionOrder
+    .map((section) => ({
+      section,
+      label: NAVIGATION_SECTION_LABELS[section],
+      items: visibleNavigationItems.filter((item) => item.section === section),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <>
@@ -54,9 +62,16 @@ export function MobileNav({ open, onClose, user }: MobileNavProps) {
           Flujo activo
         </div>
 
-        <nav className="mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-4" aria-label="Navegación móvil">
-          {visibleNavigationItems.map((item) => (
-            <NavLink key={item.href} {...item} onNavigate={onClose} />
+        <nav className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-4" aria-label="Navegación móvil">
+          {groupedNavigation.map((group) => (
+            <div key={group.section} className="space-y-2">
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{group.label}</p>
+              <div className="space-y-2">
+                {group.items.map((item) => (
+                  <NavLink key={item.href} {...item} onNavigate={onClose} />
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
       </aside>

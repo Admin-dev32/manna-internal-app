@@ -15,11 +15,13 @@ interface AppHeaderProps {
   user: AppUser;
   isDemoMode: boolean;
   isSidebarCollapsed: boolean;
+  themeMode: 'day' | 'night';
   onOpenMobileNav: () => void;
+  onThemeModeChange: (mode: 'day' | 'night') => void;
   onToggleSidebar: () => void;
 }
 
-export function AppHeader({ user, isDemoMode, isSidebarCollapsed, onOpenMobileNav, onToggleSidebar }: AppHeaderProps) {
+export function AppHeader({ user, isDemoMode, isSidebarCollapsed, themeMode, onOpenMobileNav, onThemeModeChange, onToggleSidebar }: AppHeaderProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-border/80 bg-background/88 backdrop-blur">
       <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
@@ -59,6 +61,26 @@ export function AppHeader({ user, isDemoMode, isSidebarCollapsed, onOpenMobileNa
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          <div className="hidden items-center rounded-2xl border border-border/80 bg-white/85 p-1 md:inline-flex dark:bg-slate-900/70">
+            <Button
+              type="button"
+              size="sm"
+              variant={themeMode === 'day' ? 'secondary' : 'ghost'}
+              className="h-8 rounded-xl px-3 text-xs"
+              onClick={() => onThemeModeChange('day')}
+            >
+              Day
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={themeMode === 'night' ? 'secondary' : 'ghost'}
+              className="h-8 rounded-xl px-3 text-xs"
+              onClick={() => onThemeModeChange('night')}
+            >
+              Night
+            </Button>
+          </div>
           <Badge className={cn('max-w-[180px] truncate', isDemoMode ? '' : 'sm:max-w-none')} variant={isDemoMode ? 'warning' : user.estado === 'activo' ? 'success' : 'warning'}>
             {isDemoMode ? 'Modo preparación' : `${ROLE_LABELS[user.rol]} · ${user.estado}`}
           </Badge>
