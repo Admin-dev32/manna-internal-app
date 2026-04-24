@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import type { Route } from 'next';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -22,12 +22,22 @@ import {
 } from 'lucide-react';
 
 import { LeadPriorityBadge, LeadStatusBadge } from '@/components/leads/lead-status-badge';
+import { ModulePageLayout } from '@/components/layout/module-page-layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { DetailDrawer } from '@/components/ui/detail-drawer';
 import { Input } from '@/components/ui/input';
+import { CommandPalette, type CommandPaletteItem } from '@/components/ui/command-palette';
+import { OpsRowSelectionBar, OpsTableShell, OpsTableState, OpsTableToolbar } from '@/components/ui/ops-table';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { leadPriorityOptions, leadStatusOptions } from '@/config/leads';
+import { LEADS_INTELLIGENCE_STORAGE_KEYS, leadAutomationRules } from '@/config/leads-intelligence';
+import {
+  getLeadIntelligence,
+  getAutomationPayloadForLead,
+  getNextFollowUpIsoDate,
+} from '@/lib/leads/intelligence';
 import { buildServiceInterestSummary, parseServiceInterests } from '@/lib/leads/service-interest';
 import { updateLeadInlineAction, updateLeadStatusAction } from '@/services/leads/actions';
 import { cn } from '@/lib/utils';
@@ -54,7 +64,6 @@ const priorityWeight = {
 } as const;
 
 const statusWeight = Object.fromEntries(leadStatusOptions.map((option, index) => [option.value, index])) as Record<string, number>;
-const FILTERS_STORAGE_KEY = 'manna.leads.filters.collapsed';
 
 function formatDate(value: string | null, dateOnly = false) {
   if (!value) return 'Sin fecha';
@@ -81,31 +90,6 @@ function getResponsibleLabel(lead: LeadRecord, profiles: Record<string, LeadProf
   return profiles[lead.responsible_profile_id]?.full_name ?? 'Responsable asignado';
 }
 
-function getFollowUpTone(value: string | null) {
-  if (!value) return { label: 'Sin seguimiento', variant: 'outline' as const };
-
-  const diff = new Date(value).getTime() - Date.now();
-  if (diff < 0) return { label: 'Vencido', variant: 'warning' as const };
-  if (diff <= 1000 * 60 * 60 * 24) return { label: 'Hoy', variant: 'warning' as const };
-  if (diff <= 1000 * 60 * 60 * 24 * 3) return { label: 'Próximo', variant: 'secondary' as const };
-  return { label: 'Programado', variant: 'outline' as const };
-}
-
-function getTentativeDateTone(value: string | null) {
-  if (!value) return null;
-
-  const eventDate = new Date(value);
-  if (Number.isNaN(eventDate.getTime())) return null;
-
-  const diff = eventDate.getTime() - Date.now();
-  if (diff < 0) return null;
-  if (diff <= 1000 * 60 * 60 * 24 * 7) {
-    return { label: 'Evento cercano', variant: 'secondary' as const };
-  }
-
-  return null;
-}
-
 function toDateTimeLocalValue(value: string | null) {
   if (!value) return '';
 
@@ -122,30 +106,6 @@ function normalizeInlineDate(value: string) {
 
   const parsed = new Date(normalized);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
-function getLeadSignals(lead: LeadRecord) {
-  const followUpTone = getFollowUpTone(lead.follow_up_at);
-  const tentativeDateTone = getTentativeDateTone(lead.tentative_event_date);
-  const signals: Array<{ label: string; variant: 'default' | 'secondary' | 'outline' | 'success' | 'warning'; className?: string }> = [];
-
-  if (lead.priority === 'urgente') {
-    signals.push({ label: 'Urgente', variant: 'warning', className: 'bg-rose-100 text-rose-700' });
-  }
-
-  if (followUpTone.label === 'Vencido') {
-    signals.push({ label: 'Seguimiento vencido', variant: 'warning' });
-  } else if (followUpTone.label === 'Hoy') {
-    signals.push({ label: 'Seguimiento hoy', variant: 'warning' });
-  } else if (!lead.follow_up_at && !['ganado', 'perdido'].includes(lead.status)) {
-    signals.push({ label: 'Sin seguimiento', variant: 'outline' });
-  }
-
-  if (tentativeDateTone) {
-    signals.push({ label: tentativeDateTone.label, variant: tentativeDateTone.variant });
-  }
-
-  return signals;
 }
 
 function matchesSearch(lead: LeadRecord, term: string) {
@@ -177,6 +137,14 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [activeDrawerTab, setActiveDrawerTab] = useState('overview');
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [interactionFeedback, setInteractionFeedback] = useState<string | null>(null);
+  const [suggestionFeedback, setSuggestionFeedback] = useState<Record<string, { applied: number; useful: number; notUseful: number }>>({});
+  const [automationEnabled, setAutomationEnabled] = useState<Record<string, boolean>>({});
+  const [lastActiveAt, setLastActiveAt] = useState(0);
+  const [currentTimeMs, setCurrentTimeMs] = useState(0);
   const [pendingLeadId, setPendingLeadId] = useState<string | null>(null);
   const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
 
@@ -185,15 +153,102 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
   }, [leads]);
 
   useEffect(() => {
-    const storedValue = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+    const storedValue = window.localStorage.getItem(LEADS_INTELLIGENCE_STORAGE_KEYS.filtersCollapsed);
     if (storedValue === 'true') {
       setFiltersCollapsed(true);
+    }
+    const savedViewState = window.localStorage.getItem(LEADS_INTELLIGENCE_STORAGE_KEYS.viewState);
+    if (savedViewState) {
+      try {
+        const parsed = JSON.parse(savedViewState) as {
+          search?: string;
+          statusFilter?: 'all' | LeadRecord['status'];
+          priorityFilter?: 'all' | LeadRecord['priority'];
+          responsibleFilter?: 'all' | 'unassigned' | string;
+          sortMode?: SortMode;
+        };
+        if (parsed.search) setSearch(parsed.search);
+        if (parsed.statusFilter) setStatusFilter(parsed.statusFilter);
+        if (parsed.priorityFilter) setPriorityFilter(parsed.priorityFilter);
+        if (parsed.responsibleFilter) setResponsibleFilter(parsed.responsibleFilter);
+        if (parsed.sortMode) setSortMode(parsed.sortMode);
+      } catch {
+        // no-op: si el storage está corrupto, ignoramos y usamos defaults
+      }
+    }
+
+    const savedFeedback = window.localStorage.getItem(LEADS_INTELLIGENCE_STORAGE_KEYS.suggestionFeedback);
+    if (savedFeedback) {
+      try {
+        setSuggestionFeedback(JSON.parse(savedFeedback) as Record<string, { applied: number; useful: number; notUseful: number }>);
+      } catch {
+        // no-op
+      }
+    }
+
+    const savedAutomationPrefs = window.localStorage.getItem(LEADS_INTELLIGENCE_STORAGE_KEYS.automationPrefs);
+    if (savedAutomationPrefs) {
+      try {
+        setAutomationEnabled(JSON.parse(savedAutomationPrefs) as Record<string, boolean>);
+      } catch {
+        // no-op
+      }
+    } else {
+      setAutomationEnabled(
+        Object.fromEntries(leadAutomationRules.map((rule) => [rule.id, rule.enabledByDefault])) as Record<string, boolean>,
+      );
     }
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(FILTERS_STORAGE_KEY, String(filtersCollapsed));
+    window.localStorage.setItem(LEADS_INTELLIGENCE_STORAGE_KEYS.filtersCollapsed, String(filtersCollapsed));
   }, [filtersCollapsed]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      LEADS_INTELLIGENCE_STORAGE_KEYS.viewState,
+      JSON.stringify({
+        search,
+        statusFilter,
+        priorityFilter,
+        responsibleFilter,
+        sortMode,
+      }),
+    );
+  }, [priorityFilter, responsibleFilter, search, sortMode, statusFilter]);
+
+  useEffect(() => {
+    window.localStorage.setItem(LEADS_INTELLIGENCE_STORAGE_KEYS.suggestionFeedback, JSON.stringify(suggestionFeedback));
+  }, [suggestionFeedback]);
+
+  useEffect(() => {
+    if (Object.keys(automationEnabled).length === 0) return;
+    window.localStorage.setItem(LEADS_INTELLIGENCE_STORAGE_KEYS.automationPrefs, JSON.stringify(automationEnabled));
+  }, [automationEnabled]);
+
+  useEffect(() => {
+    if (!interactionFeedback) return;
+    const timer = window.setTimeout(() => setInteractionFeedback(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [interactionFeedback]);
+
+  useEffect(() => {
+    const updateActivity = () => setLastActiveAt(Date.now());
+    updateActivity();
+    window.addEventListener('pointerdown', updateActivity);
+    window.addEventListener('keydown', updateActivity);
+    return () => {
+      window.removeEventListener('pointerdown', updateActivity);
+      window.removeEventListener('keydown', updateActivity);
+    };
+  }, []);
+
+  useEffect(() => {
+    const updateCurrentTime = () => setCurrentTimeMs(Date.now());
+    updateCurrentTime();
+    const interval = window.setInterval(updateCurrentTime, 30000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const viewCards = [
     { label: 'Total', value: summary.total.toString() },
@@ -223,11 +278,19 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
     });
   }, [boardLeads, priorityFilter, responsibleFilter, search, sortMode, statusFilter]);
 
+  const intelligenceByLeadId = useMemo(
+    () =>
+      Object.fromEntries(
+        boardLeads.map((lead) => [lead.id, getLeadIntelligence(lead)]),
+      ) as Record<string, ReturnType<typeof getLeadIntelligence>>,
+    [boardLeads],
+  );
+
   const groupedLeads = useMemo(
     () =>
       leadStatusOptions.map((option) => {
         const items = filteredAndSortedLeads.filter((lead) => lead.status === option.value);
-        const overdueCount = items.filter((lead) => getFollowUpTone(lead.follow_up_at).label === 'Vencido').length;
+	        const overdueCount = items.filter((lead) => intelligenceByLeadId[lead.id]?.followUpTone.label === 'Vencido').length;
         return {
           status: option.value,
           label: option.label,
@@ -235,12 +298,102 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
           overdueCount,
         };
       }),
-    [filteredAndSortedLeads],
+    [filteredAndSortedLeads, intelligenceByLeadId],
   );
 
   const visibleLeadCount = groupedLeads.reduce((accumulator, group) => accumulator + group.items.length, 0);
   const selectedLead = filteredAndSortedLeads.find((lead) => lead.id === selectedLeadId) ?? boardLeads.find((lead) => lead.id === selectedLeadId) ?? null;
   const hasActiveFilters = search || statusFilter !== 'all' || priorityFilter !== 'all' || responsibleFilter !== 'all' || sortMode !== 'follow_up';
+  const visibleLeadIds = filteredAndSortedLeads.map((lead) => lead.id);
+  const selectedLeads = boardLeads.filter((lead) => selectedLeadIds.includes(lead.id));
+  const overdueLeadsCount = filteredAndSortedLeads.filter((lead) => intelligenceByLeadId[lead.id]?.actionSuggestion.urgency === 'critical').length;
+  const noFollowUpCount = filteredAndSortedLeads.filter((lead) => intelligenceByLeadId[lead.id]?.needsFollowUpScheduling).length;
+  const isIdle = currentTimeMs - lastActiveAt > 1000 * 60 * 2;
+  const intelligentTodayActions = filteredAndSortedLeads
+    .map((lead) => {
+      const intelligence = intelligenceByLeadId[lead.id] ?? getLeadIntelligence(lead);
+      return { lead, suggestion: intelligence.actionSuggestion, score: intelligence.scoreBreakdown.score };
+    })
+    .filter((item) => item.suggestion.urgency === 'critical' || item.suggestion.urgency === 'high')
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+
+  const openLeadDrawer = useCallback((leadId: string) => {
+    setSelectedLeadId(leadId);
+    setActiveDrawerTab('overview');
+  }, []);
+
+  const moveSelection = useCallback(
+    (direction: 'next' | 'prev') => {
+      if (visibleLeadIds.length === 0) return;
+      if (!selectedLeadId) {
+        openLeadDrawer(visibleLeadIds[0]);
+        return;
+      }
+      const currentIndex = visibleLeadIds.indexOf(selectedLeadId);
+      if (currentIndex === -1) {
+        openLeadDrawer(visibleLeadIds[0]);
+        return;
+      }
+      const nextIndex = direction === 'next'
+        ? Math.min(currentIndex + 1, visibleLeadIds.length - 1)
+        : Math.max(currentIndex - 1, 0);
+      openLeadDrawer(visibleLeadIds[nextIndex]);
+    },
+    [openLeadDrawer, selectedLeadId, visibleLeadIds],
+  );
+
+  useEffect(() => {
+    function handleKeyboardShortcuts(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget = target ? ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable : false;
+      const isCmdK = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
+
+      if (isCmdK) {
+        event.preventDefault();
+        setIsCommandPaletteOpen(true);
+        return;
+      }
+
+      if (isTypingTarget) return;
+
+      if (event.key === '/') {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>('input[aria-label="Buscar leads"]')?.focus();
+      }
+
+      if (event.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        router.push('/leads/nuevo');
+      }
+
+      if (event.key === 'Enter' && selectedLeadId) {
+        event.preventDefault();
+        openLeadDrawer(selectedLeadId);
+      }
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveSelection('next');
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveSelection('prev');
+      }
+
+      if (event.key === 'Escape') {
+        if (isCommandPaletteOpen) {
+          setIsCommandPaletteOpen(false);
+          return;
+        }
+        if (selectedLeadId) setSelectedLeadId(null);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyboardShortcuts);
+    return () => window.removeEventListener('keydown', handleKeyboardShortcuts);
+  }, [isCommandPaletteOpen, moveSelection, openLeadDrawer, router, selectedLeadId]);
 
   function toggleGroup(status: string) {
     setCollapsedGroups((current) => ({
@@ -249,15 +402,29 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
     }));
   }
 
-  function resetBoardControls() {
+  const resetBoardControls = useCallback(() => {
     setSearch('');
     setStatusFilter('all');
     setPriorityFilter('all');
     setResponsibleFilter('all');
     setSortMode('follow_up');
+  }, []);
+
+  function toggleLeadSelection(leadId: string) {
+    setSelectedLeadIds((current) => (current.includes(leadId) ? current.filter((item) => item !== leadId) : [...current, leadId]));
   }
 
-  function applyLocalLeadPatch(leadId: string, patch: Partial<LeadRecord>) {
+  function clearLeadSelection() {
+    setSelectedLeadIds([]);
+  }
+
+  function toggleSelectAllVisibleLeads() {
+    const allVisibleIds = filteredAndSortedLeads.map((lead) => lead.id);
+    const allAlreadySelected = allVisibleIds.length > 0 && allVisibleIds.every((leadId) => selectedLeadIds.includes(leadId));
+    setSelectedLeadIds(allAlreadySelected ? [] : allVisibleIds);
+  }
+
+  const applyLocalLeadPatch = useCallback((leadId: string, patch: Partial<LeadRecord>) => {
     setBoardLeads((current) =>
       current.map((lead) =>
         lead.id === leadId
@@ -270,7 +437,60 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
           : lead,
       ),
     );
+  }, []);
+
+  function trackSuggestionFeedback(suggestionId: string, type: 'applied' | 'useful' | 'notUseful') {
+    setSuggestionFeedback((current) => {
+      const previous = current[suggestionId] ?? { applied: 0, useful: 0, notUseful: 0 };
+      return {
+        ...current,
+        [suggestionId]: {
+          ...previous,
+          [type]: previous[type] + 1,
+        },
+      };
+    });
   }
+
+  const applyLeadAutomationRules = useCallback(async (targetLeads: LeadRecord[]) => {
+    const followUpAt = getNextFollowUpIsoDate(1);
+
+    let affected = 0;
+    for (const lead of targetLeads) {
+      const payload = getAutomationPayloadForLead({
+        lead,
+        intelligence: intelligenceByLeadId[lead.id] ?? getLeadIntelligence(lead),
+        rules: leadAutomationRules,
+        enabledRules: automationEnabled,
+        followUpAt,
+      });
+      const updates: Partial<LeadRecord> = {
+        ...(payload.status ? { status: payload.status } : {}),
+        ...(payload.followUpAt ? { follow_up_at: payload.followUpAt } : {}),
+      };
+
+      if (Object.keys(payload).length === 0) continue;
+      await updateLeadInlineAction(lead.id, payload);
+      applyLocalLeadPatch(lead.id, updates);
+      affected += 1;
+    }
+
+    return affected;
+  }, [automationEnabled]);
+
+  const applySmartBulkFollowUp = useCallback(async () => {
+    const candidateLeads = selectedLeads.filter((lead) => (intelligenceByLeadId[lead.id] ?? getLeadIntelligence(lead)).needsFollowUpScheduling);
+    if (candidateLeads.length === 0) {
+      setInteractionFeedback('No hay leads seleccionados que necesiten seguimiento.');
+      return;
+    }
+
+    const affected = await applyLeadAutomationRules(candidateLeads);
+    trackSuggestionFeedback('schedule-follow-up', 'applied');
+    setInteractionFeedback(`Sugerencia aplicada: ${affected} leads con seguimiento programado.`);
+    clearLeadSelection();
+    router.refresh();
+  }, [applyLeadAutomationRules, intelligenceByLeadId, router, selectedLeads]);
 
   async function handleLeadStatusChange(leadId: string, nextStatus: LeadStatus) {
     const previousLeads = boardLeads;
@@ -284,6 +504,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
       setBoardLeads(previousLeads);
       setStatusUpdateError(result.error ?? 'No pudimos mover el lead al nuevo grupo.');
     } else {
+      setInteractionFeedback('Estado actualizado');
       router.refresh();
     }
 
@@ -308,73 +529,156 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
       setBoardLeads(previousLeads);
       setStatusUpdateError(result.error ?? 'No pudimos guardar el cambio rápido del lead.');
     } else {
+      setInteractionFeedback('Cambios guardados');
       router.refresh();
     }
 
     setPendingLeadId(null);
   }
 
-  return (
-    <div className="flex flex-col gap-5 pb-10">
-      <section className="rounded-[2rem] border border-border bg-slate-950 p-5 text-white shadow-panel sm:p-6">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge variant="secondary">Leads</Badge>
-              <Badge className="bg-white/10 text-white">Board operativo</Badge>
-              <Badge className="bg-white/10 text-white">Vista principal: Tabla</Badge>
-            </div>
-            <div className="space-y-2">
-              <h1 className="text-3xl font-semibold sm:text-4xl">Board de Leads para seguimiento diario</h1>
-              <p className="max-w-3xl text-sm text-slate-300 sm:text-base">
-                Mantengo el enfoque tipo board, pero concentrado en una tabla agrupada realmente operativa, con más espacio útil y navegación clara.
-              </p>
-            </div>
-          </div>
+  const commandItems = useMemo(() => {
+    const baseItems: CommandPaletteItem[] = [
+      {
+        id: 'new-lead',
+        label: 'Crear nuevo lead',
+        hint: 'N',
+        keywords: ['crear', 'nuevo', 'lead'],
+        onSelect: () => router.push('/leads/nuevo'),
+      },
+      {
+        id: 'focus-search',
+        label: 'Enfocar búsqueda',
+        hint: '/',
+        keywords: ['buscar', 'filtro', 'search'],
+        onSelect: () => document.querySelector<HTMLInputElement>('input[aria-label=\"Buscar leads\"]')?.focus(),
+      },
+      {
+        id: 'clear-filters',
+        label: 'Limpiar filtros',
+        hint: 'reset',
+        keywords: ['limpiar', 'filtros'],
+        onSelect: () => resetBoardControls(),
+      },
+      {
+        id: 'open-first',
+        label: 'Abrir primer lead visible',
+        hint: 'Enter',
+        keywords: ['abrir', 'drawer', 'detalle'],
+        onSelect: () => {
+          if (visibleLeadIds[0]) openLeadDrawer(visibleLeadIds[0]);
+        },
+      },
+    ];
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[420px]">
-            {viewCards.map((item) => (
-              <div key={item.label} className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{item.label}</p>
-                <p className="mt-2 text-2xl font-semibold">{item.value}</p>
-              </div>
-            ))}
-          </div>
+    if (selectedLead) {
+      baseItems.push({
+        id: 'selected-followup-tab',
+        label: `Abrir actividad de ${selectedLead.full_name}`,
+        hint: 'drawer',
+        keywords: ['actividad', 'timeline', 'lead'],
+        onSelect: () => {
+          openLeadDrawer(selectedLead.id);
+          setActiveDrawerTab('activity');
+        },
+      });
+    }
+
+    if (selectedLeads.length > 0) {
+      baseItems.push({
+        id: 'smart-bulk-followup',
+        label: 'Aplicar sugerencia masiva: programar seguimiento',
+        hint: `${selectedLeads.length} seleccionados`,
+        keywords: ['bulk', 'seguimiento', 'inteligencia'],
+        onSelect: () => {
+          void applySmartBulkFollowUp();
+        },
+      });
+    }
+
+    return baseItems;
+  }, [applySmartBulkFollowUp, openLeadDrawer, resetBoardControls, router, selectedLead, selectedLeads.length, visibleLeadIds]);
+
+  return (
+    <ModulePageLayout
+      badge="Comercial"
+      title="Leads"
+      description="Pipeline diario para seguimiento comercial, organización por estado y decisiones rápidas sin perder contexto."
+      breadcrumbs={[{ label: 'Comercial' }, { label: 'Leads' }]}
+      headerActions={(
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[420px]">
+          {viewCards.map((item) => (
+            <div key={item.label} className="rounded-2xl border border-white/10 bg-white/5 p-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{item.label}</p>
+              <p className="mt-2 text-2xl font-semibold">{item.value}</p>
+            </div>
+          ))}
         </div>
-      </section>
+      )}
+      className="pb-10"
+    >
 
       {statusUpdateError ? (
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="p-4 text-sm text-amber-800">{statusUpdateError}</CardContent>
         </Card>
       ) : null}
+      {interactionFeedback ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800 transition-all">
+          {interactionFeedback}
+        </div>
+      ) : null}
 
-      <Card className="sticky top-4 z-20 border-border/80 shadow-sm">
-        <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" size="sm">
-                <TableProperties className="size-4" />
-                Tabla
-              </Button>
-              <Badge variant="outline">Kanban no implementado</Badge>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setFiltersCollapsed((current) => !current)}>
-                <ListFilter className="size-4" />
-                {filtersCollapsed ? 'Mostrar filtros' : 'Ocultar filtros'}
-              </Button>
-              <Button asChild>
-                <Link href="/leads/nuevo">
-                  <Plus className="size-4" />
-                  Nuevo lead
-                </Link>
-              </Button>
+      <Card>
+        <CardHeader>
+          <CardTitle>Panel inteligente del día</CardTitle>
+          <CardDescription>Prioridades sugeridas automáticamente con base en urgencia + score.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {intelligentTodayActions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay alertas críticas en este momento.</p>
+          ) : (
+            intelligentTodayActions.map((item) => (
+              <button
+                key={item.lead.id}
+                type="button"
+                className="flex w-full items-start justify-between gap-3 rounded-2xl border border-border bg-background px-4 py-3 text-left hover:border-primary/40 hover:bg-primary/5"
+                onClick={() => openLeadDrawer(item.lead.id)}
+              >
+                <div>
+                  <p className="font-medium text-foreground">{item.lead.full_name}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.suggestion.title}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={item.suggestion.urgency === 'critical' ? 'warning' : 'secondary'}>{item.suggestion.urgency}</Badge>
+                  <Badge variant="outline">Score {item.score}</Badge>
+                </div>
+              </button>
+            ))
+          )}
+          <div className="rounded-2xl border border-border bg-muted/20 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Reglas automáticas</p>
+            <div className="mt-2 grid gap-2">
+              {leadAutomationRules.map((rule) => (
+                <label key={rule.id} className="flex items-start gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(automationEnabled[rule.id])}
+                    onChange={(event) => setAutomationEnabled((current) => ({ ...current, [rule.id]: event.target.checked }))}
+                  />
+                  <span>
+                    <span className="font-medium">{rule.label}</span>
+                    <span className="block text-xs text-muted-foreground">{rule.description}</span>
+                  </span>
+                </label>
+              ))}
             </div>
           </div>
+        </CardContent>
+      </Card>
 
-          <div className="grid gap-3 xl:grid-cols-[1.4fr_auto] xl:items-center">
+      <OpsTableShell className="sticky top-4 z-20 border-border/80 shadow-sm">
+        <OpsTableToolbar
+          searchSlot={(
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -385,15 +689,39 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          )}
+          actionsSlot={(
+            <>
+              <Button type="button" size="sm">
+                <TableProperties className="size-4" />
+                Tabla
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setFiltersCollapsed((current) => !current)}>
+                <ListFilter className="size-4" />
+                {filtersCollapsed ? 'Mostrar filtros' : 'Ocultar filtros'}
+              </Button>
+              <Button asChild>
+                <Link href="/leads/nuevo">
+                  <Plus className="size-4" />
+                  Nuevo lead
+                </Link>
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setIsCommandPaletteOpen(true)}>
+                ⌘K
+              </Button>
+            </>
+          )}
+          metaSlot={(
+            <>
               <Badge variant="secondary">{visibleLeadCount} leads visibles</Badge>
               <Badge variant="outline">Agrupado por estado</Badge>
+              {overdueLeadsCount > 0 ? <Badge variant="warning">{overdueLeadsCount} críticos</Badge> : null}
+              {noFollowUpCount > 0 ? <Badge variant="outline">{noFollowUpCount} sin seguimiento</Badge> : null}
               {hasActiveFilters ? <Badge variant="outline">Filtros activos</Badge> : null}
-            </div>
-          </div>
-
-          {!filtersCollapsed ? (
-            <div className="grid gap-3 border-t border-border/70 pt-4 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+            </>
+          )}
+          filtersSlot={!filtersCollapsed ? (
+            <>
               <SelectControl
                 icon={<ListFilter className="size-4 text-muted-foreground" />}
                 label="Estado"
@@ -445,26 +773,42 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                   </Button>
                 ) : null}
               </div>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+            </>
+          ) : undefined}
+        />
+      </OpsTableShell>
+
+      <OpsRowSelectionBar selectedCount={selectedLeadIds.length}>
+        <Button type="button" size="sm" onClick={() => void applySmartBulkFollowUp()}>
+          Sugerencia inteligente
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={clearLeadSelection}>
+          Limpiar selección
+        </Button>
+      </OpsRowSelectionBar>
+
+      {isIdle ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          Sin actividad reciente. Revisa leads críticos o usa ⌘K para ejecutar una acción sugerida.
+        </div>
+      ) : null}
 
       {visibleLeadCount === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-start gap-4 p-6">
-            <p className="text-lg font-semibold">No hay leads que coincidan con la búsqueda actual.</p>
-            <p className="text-sm text-muted-foreground">Ajusta filtros, limpia la búsqueda o crea un nuevo lead para seguir operando desde el board.</p>
-            <div className="flex flex-wrap gap-3">
-              <Button type="button" variant="outline" onClick={resetBoardControls}>
-                Limpiar filtros
-              </Button>
-              <Button asChild>
-                <Link href="/leads/nuevo">Nuevo lead</Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <OpsTableState
+            kind="empty"
+            title="No hay leads que coincidan con la búsqueda actual."
+            description="Ajusta filtros, limpia la búsqueda o crea un nuevo lead para seguir operando."
+          />
+          <div className="flex flex-wrap gap-3">
+            <Button type="button" variant="outline" onClick={resetBoardControls}>
+              Limpiar filtros
+            </Button>
+            <Button asChild>
+              <Link href="/leads/nuevo">Nuevo lead</Link>
+            </Button>
+          </div>
+        </div>
       ) : (
         <div className="space-y-4">
           {groupedLeads
@@ -499,7 +843,17 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                         <Table>
                           <TableHeader>
                             <TableRow>
+                              <TableHead className="w-[56px]">
+                                <input
+                                  type="checkbox"
+                                  aria-label="Seleccionar todos los leads visibles"
+                                  checked={filteredAndSortedLeads.length > 0 && filteredAndSortedLeads.every((lead) => selectedLeadIds.includes(lead.id))}
+                                  onChange={toggleSelectAllVisibleLeads}
+                                  onClick={(event) => event.stopPropagation()}
+                                />
+                              </TableHead>
                               <TableHead className="min-w-[220px]">Nombre</TableHead>
+                              <TableHead>Score</TableHead>
                               <TableHead className="min-w-[170px]">Estado</TableHead>
                               <TableHead>Prioridad</TableHead>
                               <TableHead className="min-w-[170px]">Responsable</TableHead>
@@ -517,20 +871,38 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                             {group.items.map((lead) => {
                               const detailHref = `/leads/${lead.id}` as Route;
                               const editHref = `/leads/${lead.id}/editar` as Route;
-                              const followUpTone = getFollowUpTone(lead.follow_up_at);
-                              const tentativeDateTone = getTentativeDateTone(lead.tentative_event_date);
-                              const leadSignals = getLeadSignals(lead);
+                              const intelligence = intelligenceByLeadId[lead.id] ?? getLeadIntelligence(lead);
+                              const followUpTone = intelligence.followUpTone;
+                              const tentativeDateTone = intelligence.tentativeDateTone;
+                              const leadSignals = intelligence.signals;
+                              const urgencyBadge = intelligence.urgencyBadge;
+                              const scoreBreakdown = intelligence.scoreBreakdown;
 
                               return (
                                 <TableRow
                                   key={lead.id}
                                   className={cn(
-                                    'cursor-pointer align-top',
+                                    'group/row cursor-pointer align-top',
                                     followUpTone.label === 'Vencido' && 'bg-amber-50/60',
                                     lead.priority === 'urgente' && 'border-l-2 border-l-rose-300',
+                                    selectedLeadIds.includes(lead.id) && 'bg-primary/5',
                                   )}
                                   onClick={() => setSelectedLeadId(lead.id)}
                                 >
+                                  <TableCell>
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Seleccionar ${lead.full_name}`}
+                                      checked={selectedLeadIds.includes(lead.id)}
+                                      onChange={() => toggleLeadSelection(lead.id)}
+                                      onClick={(event) => event.stopPropagation()}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant={scoreBreakdown.score >= 75 ? 'success' : scoreBreakdown.score >= 50 ? 'secondary' : 'outline'}>
+                                      {scoreBreakdown.score}
+                                    </Badge>
+                                  </TableCell>
                                   <TableCell>
                                     <div className="space-y-2">
                                       <button
@@ -545,6 +917,9 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                       </button>
                                       <p className="text-xs text-muted-foreground">{getPrimaryContact(lead)}</p>
                                       <div className="flex flex-wrap gap-2">
+                                        <Badge variant={urgencyBadge.variant} className={urgencyBadge.className}>
+                                          {urgencyBadge.label}
+                                        </Badge>
                                         {leadSignals.map((signal) => (
                                           <Badge key={`${lead.id}-${signal.label}`} variant={signal.variant} className={signal.className}>
                                             {signal.label}
@@ -603,7 +978,7 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                   <TableCell className="text-sm text-muted-foreground">{lead.guest_count?.toString() ?? '—'}</TableCell>
                                   <TableCell className="text-sm text-muted-foreground">{formatDate(lead.last_interaction_at)}</TableCell>
                                   <TableCell>
-                                    <div className="flex flex-col gap-2">
+                                    <div className="flex flex-col gap-2 opacity-80 transition group-hover/row:opacity-100">
                                       <Button
                                         type="button"
                                         size="sm"
@@ -615,13 +990,13 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                         <Eye className="size-4" />
                                         Abrir
                                       </Button>
-                                      <Button asChild variant="outline" size="sm" onClick={(event) => event.stopPropagation()}>
+                                      <Button asChild variant="outline" size="sm" className="hidden group-hover/row:inline-flex" onClick={(event) => event.stopPropagation()}>
                                         <Link href={editHref}>
                                           <PencilLine className="size-4" />
                                           Editar
                                         </Link>
                                       </Button>
-                                      <Button asChild variant="ghost" size="sm" onClick={(event) => event.stopPropagation()}>
+                                      <Button asChild variant="ghost" size="sm" className="hidden group-hover/row:inline-flex" onClick={(event) => event.stopPropagation()}>
                                         <Link href={detailHref}>
                                           Ir a detalle
                                           <ArrowRight className="size-4" />
@@ -640,10 +1015,13 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                         {group.items.map((lead) => {
                           const detailHref = `/leads/${lead.id}` as Route;
                           const editHref = `/leads/${lead.id}/editar` as Route;
-                          const followUpTone = getFollowUpTone(lead.follow_up_at);
+                          const intelligence = intelligenceByLeadId[lead.id] ?? getLeadIntelligence(lead);
+                          const followUpTone = intelligence.followUpTone;
+                          const urgencyBadge = intelligence.urgencyBadge;
+                          const scoreBreakdown = intelligence.scoreBreakdown;
 
                           return (
-                            <Card key={lead.id} className="border border-border/80 shadow-none">
+                            <Card key={lead.id} className={cn('border border-border/80 shadow-none', selectedLeadIds.includes(lead.id) && 'bg-primary/5')}>
                               <CardContent className="space-y-4 p-4">
                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                   <div className="space-y-1">
@@ -652,7 +1030,13 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                     </button>
                                     <p className="text-sm text-muted-foreground">{getPrimaryContact(lead)}</p>
                                     <div className="flex flex-wrap gap-2 pt-1">
-                                      {getLeadSignals(lead).map((signal) => (
+                                      <Badge variant={scoreBreakdown.score >= 75 ? 'success' : scoreBreakdown.score >= 50 ? 'secondary' : 'outline'}>
+                                        Score {scoreBreakdown.score}
+                                      </Badge>
+                                      <Badge variant={urgencyBadge.variant} className={urgencyBadge.className}>
+                                        {urgencyBadge.label}
+                                      </Badge>
+                                      {intelligence.signals.map((signal) => (
                                         <Badge key={`${lead.id}-mobile-${signal.label}`} variant={signal.variant} className={signal.className}>
                                           {signal.label}
                                         </Badge>
@@ -665,6 +1049,15 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
                                     onChange={(value) => handleInlineLeadUpdate(lead.id, { priority: value })}
                                   />
                                 </div>
+
+                                <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedLeadIds.includes(lead.id)}
+                                    onChange={() => toggleLeadSelection(lead.id)}
+                                  />
+                                  Seleccionar para acciones rápidas
+                                </label>
 
                                 <InlineStatusSelect
                                   value={lead.status}
@@ -731,8 +1124,28 @@ export function LeadsList({ leads, summary, profiles }: LeadsListProps) {
         </div>
       )}
 
-      <LeadQuickViewDrawer lead={selectedLead} profiles={profiles} onClose={() => setSelectedLeadId(null)} />
-    </div>
+      <LeadQuickViewDrawer
+        lead={selectedLead}
+        profiles={profiles}
+        suggestionFeedback={suggestionFeedback}
+        onFeedback={(suggestionId, type) => {
+          trackSuggestionFeedback(suggestionId, type);
+          setInteractionFeedback(type === 'notUseful' ? 'Gracias, ajustaremos esta sugerencia.' : 'Feedback registrado.');
+        }}
+        activeTab={activeDrawerTab}
+        onTabChange={setActiveDrawerTab}
+        onClose={() => {
+          setSelectedLeadId(null);
+          setActiveDrawerTab('overview');
+        }}
+      />
+      <CommandPalette
+        open={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        title="Acciones rápidas · Leads"
+        items={commandItems}
+      />
+    </ModulePageLayout>
   );
 }
 
@@ -918,110 +1331,185 @@ function InfoLine({ label, value, badge }: { label: string; value: ReactNode; ba
 function LeadQuickViewDrawer({
   lead,
   profiles,
+  suggestionFeedback,
+  onFeedback,
+  activeTab,
+  onTabChange,
   onClose,
 }: {
   lead: LeadRecord | null;
   profiles: Record<string, LeadProfileOption>;
+  suggestionFeedback: Record<string, { applied: number; useful: number; notUseful: number }>;
+  onFeedback: (suggestionId: string, type: 'useful' | 'notUseful') => void;
+  activeTab: string;
+  onTabChange: (tabId: string) => void;
   onClose: () => void;
 }) {
   if (!lead) return null;
 
   const detailHref = `/leads/${lead.id}` as Route;
   const editHref = `/leads/${lead.id}/editar` as Route;
-  const followUpTone = getFollowUpTone(lead.follow_up_at);
-
-  return (
-    <>
-      <button type="button" aria-label="Cerrar panel" className="fixed inset-0 z-30 bg-slate-950/40 backdrop-blur-sm" onClick={onClose} />
-      <aside className="fixed inset-y-0 right-0 z-40 w-full max-w-2xl overflow-y-auto border-l border-border bg-background shadow-2xl">
-        <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
-          <div className="flex items-start justify-between gap-4 p-5">
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary">Quick view</Badge>
-                <LeadStatusBadge status={lead.status} />
-                <LeadPriorityBadge priority={lead.priority} />
+  const intelligence = getLeadIntelligence(lead);
+  const followUpTone = intelligence.followUpTone;
+  const suggestion = intelligence.actionSuggestion;
+  const scoreBreakdown = intelligence.scoreBreakdown;
+  const suggestionStats = suggestionFeedback[suggestion.id] ?? { applied: 0, useful: 0, notUseful: 0 };
+  const activityTimeline = [
+    { label: 'Creado', value: formatDate(lead.created_at), tone: 'default' },
+    { label: 'Última interacción', value: formatDate(lead.last_interaction_at), tone: 'default' },
+    { label: 'Seguimiento', value: lead.follow_up_at ? formatDate(lead.follow_up_at) : 'Sin seguimiento programado', tone: followUpTone.label === 'Vencido' ? 'warning' : 'default' },
+    { label: 'Última actualización', value: formatDate(lead.updated_at), tone: 'default' },
+  ] as const;
+  const tabs = [
+    {
+      id: 'overview',
+      label: 'Overview',
+      content: (
+        <Card>
+          <CardHeader>
+            <CardTitle>Resumen contextual</CardTitle>
+            <CardDescription>Vista rápida del lead sin abandonar el board principal.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-2xl border border-border bg-muted/20 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Siguiente acción sugerida</p>
+              <p className="mt-2 text-sm font-medium text-foreground">{suggestion.title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{suggestion.description}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge variant={suggestion.urgency === 'critical' || suggestion.urgency === 'high' ? 'warning' : suggestion.urgency === 'medium' ? 'secondary' : 'outline'}>
+                  Urgencia: {suggestion.urgency}
+                </Badge>
+                <Badge variant={scoreBreakdown.score >= 75 ? 'success' : scoreBreakdown.score >= 50 ? 'secondary' : 'outline'}>Lead score: {scoreBreakdown.score}</Badge>
+                {suggestion.suggestedStatus ? <Badge variant="outline">Estado sugerido: {suggestion.suggestedStatus}</Badge> : null}
               </div>
-              <div>
-                <h2 className="text-2xl font-semibold text-foreground">{lead.full_name}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{getPrimaryContact(lead)}</p>
+              <div className="mt-3 rounded-xl border border-border bg-background px-3 py-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">¿Por qué esta sugerencia?</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                  {suggestion.reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => onFeedback(suggestion.id, 'useful')}>
+                    Útil
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => onFeedback(suggestion.id, 'notUseful')}>
+                    No útil
+                  </Button>
+                  <Badge variant="outline">Aplicada {suggestionStats.applied}</Badge>
+                  <Badge variant="outline">Útil {suggestionStats.useful}</Badge>
+                </div>
               </div>
             </div>
-            <Button type="button" variant="ghost" size="icon" onClick={onClose}>
-              <X className="size-4" />
-            </Button>
-          </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+            <QuickStat label="Responsable" value={getResponsibleLabel(lead, profiles)} />
+            <QuickStat label="Origen" value={lead.source_platform ?? 'Sin definir'} />
+            <QuickStat label="Servicio" value={getServiceInterestLabel(lead)} />
+            <QuickStat label="Invitados" value={lead.guest_count?.toString() ?? 'Sin definir'} />
+            <QuickStat label="Fecha tentativa" value={lead.tentative_event_date ? formatDate(lead.tentative_event_date, true) : 'Sin definir'} />
+            <QuickStat label="Última interacción" value={formatDate(lead.last_interaction_at)} />
+            </div>
+          </CardContent>
+        </Card>
+      ),
+    },
+    {
+      id: 'activity',
+      label: 'Actividad',
+      content: (
+        <Card>
+          <CardHeader>
+            <CardTitle>Seguimiento operativo</CardTitle>
+            <CardDescription>Visibilidad rápida de pendientes, próximo paso y señales de riesgo.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-2xl bg-muted/25 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Próxima acción</p>
+              <p className="mt-2 text-sm text-foreground">{lead.next_action}</p>
+            </div>
+            <div className="rounded-2xl bg-muted/25 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Seguimiento</p>
+                <Badge variant={followUpTone.variant}>{followUpTone.label}</Badge>
+              </div>
+              <p className="mt-2 text-sm text-foreground">{lead.follow_up_at ? formatDate(lead.follow_up_at) : 'Sin seguimiento programado'}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Timeline</p>
+              <div className="mt-3 space-y-3">
+                {activityTimeline.map((item) => (
+                  <div key={item.label} className="flex items-start gap-3">
+                    <span className={cn('mt-1 size-2 rounded-full', item.tone === 'warning' ? 'bg-amber-500' : 'bg-primary')} />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{item.label}</p>
+                      <p className="text-xs text-muted-foreground">{item.value}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Factores del score</p>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                {scoreBreakdown.factors.map((factor) => (
+                  <li key={factor}>{factor}</li>
+                ))}
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+      ),
+    },
+    {
+      id: 'notes',
+      label: 'Notas',
+      content: (
+        <Card>
+          <CardHeader>
+            <CardTitle>Notas internas</CardTitle>
+            <CardDescription>Contexto rápido para continuar el trabajo sin saltar de vista.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="whitespace-pre-wrap text-sm text-foreground">{lead.internal_notes ?? 'Aún no hay notas registradas en este lead.'}</p>
+          </CardContent>
+        </Card>
+      ),
+    },
+  ];
+
+  return (
+    <DetailDrawer
+      open={Boolean(lead)}
+      onClose={onClose}
+      badge={(
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary">Quick view</Badge>
+          <LeadStatusBadge status={lead.status} />
+          <LeadPriorityBadge priority={lead.priority} />
         </div>
-
-        <div className="space-y-6 p-5">
-          <Card>
-            <CardHeader>
-              <CardTitle>Resumen contextual</CardTitle>
-              <CardDescription>Vista rápida del lead sin abandonar el board principal.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <QuickStat label="Responsable" value={getResponsibleLabel(lead, profiles)} />
-              <QuickStat label="Origen" value={lead.source_platform ?? 'Sin definir'} />
-              <QuickStat label="Servicio" value={getServiceInterestLabel(lead)} />
-              <QuickStat label="Invitados" value={lead.guest_count?.toString() ?? 'Sin definir'} />
-              <QuickStat label="Fecha tentativa" value={lead.tentative_event_date ? formatDate(lead.tentative_event_date, true) : 'Sin definir'} />
-              <QuickStat label="Última interacción" value={formatDate(lead.last_interaction_at)} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Seguimiento operativo</CardTitle>
-              <CardDescription>Base lista para evolucionar a updates internas del item.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-2xl bg-muted/25 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Próxima acción</p>
-                <p className="mt-2 text-sm text-foreground">{lead.next_action}</p>
-              </div>
-              <div className="rounded-2xl bg-muted/25 p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Seguimiento</p>
-                  <Badge variant={followUpTone.variant}>{followUpTone.label}</Badge>
-                </div>
-                <p className="mt-2 text-sm text-foreground">{lead.follow_up_at ? formatDate(lead.follow_up_at) : 'Sin seguimiento programado'}</p>
-              </div>
-              <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground">Actualizaciones internas · Próximamente</p>
-                <p className="mt-2">Esta zona queda preparada para futuras updates del item, notas colaborativas, menciones e historial más conversacional.</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Acciones rápidas</CardTitle>
-              <CardDescription>Abre edición o detalle completo cuando necesites más contexto.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              <Button asChild>
-                <Link href={editHref}>
-                  <PencilLine className="size-4" />
-                  Editar lead
-                </Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link href={detailHref}>
-                  Ver detalle completo
-                  <ArrowRight className="size-4" />
-                </Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link href="/leads/nuevo">
-                  <Plus className="size-4" />
-                  Nuevo lead
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </aside>
-    </>
+      )}
+      title={lead.full_name}
+      subtitle={getPrimaryContact(lead)}
+      tabs={tabs}
+      activeTab={activeTab}
+      onChangeTab={onTabChange}
+      headerActions={(
+        <>
+          <Button asChild>
+            <Link href={editHref}>
+              <PencilLine className="size-4" />
+              Editar lead
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href={detailHref}>
+              Ver detalle completo
+              <ArrowRight className="size-4" />
+            </Link>
+          </Button>
+        </>
+      )}
+    />
   );
 }
 

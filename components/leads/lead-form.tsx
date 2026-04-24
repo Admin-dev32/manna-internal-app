@@ -1,18 +1,20 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useActionState, useMemo, useState } from 'react';
+import { useActionState, useEffect, useMemo, useState } from 'react';
 import { CircleAlert, Sparkles } from 'lucide-react';
 
 import { AuthFeedback } from '@/components/auth/auth-feedback';
 import { LeadStatusBadge } from '@/components/leads/lead-status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { OpsFormSection, OpsFormStickyFooter } from '@/components/ui/ops-form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { parseServiceInterests } from '@/lib/leads/service-interest';
 import { leadEventTypeOptions, leadLanguageOptions, leadPriorityOptions, leadServiceOptions, leadSourceOptions, leadStatusOptions } from '@/config/leads';
+import { LEADS_INTELLIGENCE_STORAGE_KEYS } from '@/config/leads-intelligence';
 import { initialLeadFormState } from '@/services/leads/form-state';
 import type { LeadFormState } from '@/services/leads/form-state';
 import type { LeadProfileOption, LeadRecord, LeadStatus } from '@/types/leads';
@@ -49,13 +51,27 @@ function getCustomSelectInitialState(value: string | null | undefined, options: 
 
 export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps) {
   const [state, formAction] = useActionState(action, initialLeadFormState);
+  const smartDefaults = useMemo(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(LEADS_INTELLIGENCE_STORAGE_KEYS.formSmartDefaults) ?? '{}') as Partial<{
+        source_platform: string;
+        event_type: string;
+        language: string;
+        priority: string;
+      }>;
+      return parsed;
+    } catch {
+      return {};
+    }
+  }, []);
 
   const sourceOptions = useMemo<SelectOption[]>(() => leadSourceOptions.map((value) => ({ value, label: value })), []);
   const eventTypeOptions = useMemo<SelectOption[]>(() => leadEventTypeOptions.map((value) => ({ value, label: value })), []);
   const serviceOptions = useMemo<SelectOption[]>(() => leadServiceOptions.map((value) => ({ value, label: value })), []);
 
-  const sourceInitial = getCustomSelectInitialState(lead?.source_platform, sourceOptions);
-  const eventTypeInitial = getCustomSelectInitialState(lead?.event_type, eventTypeOptions);
+  const sourceInitial = getCustomSelectInitialState(lead?.source_platform ?? smartDefaults.source_platform ?? null, sourceOptions);
+  const eventTypeInitial = getCustomSelectInitialState(lead?.event_type ?? smartDefaults.event_type ?? null, eventTypeOptions);
   const initialServiceInterests = parseServiceInterests({
     serviceInterests: lead?.service_interests ?? null,
     serviceInterest: lead?.service_interest ?? null,
@@ -92,6 +108,17 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
     });
   }
 
+  useEffect(() => {
+    if (lead) return;
+    window.localStorage.setItem(
+      LEADS_INTELLIGENCE_STORAGE_KEYS.formSmartDefaults,
+      JSON.stringify({
+        source_platform: sourceSelection === 'Otro' ? sourceCustomValue : sourceSelection || undefined,
+        event_type: eventTypeSelection === 'Otro' ? eventTypeCustomValue : eventTypeSelection || undefined,
+      }),
+    );
+  }, [eventTypeCustomValue, eventTypeSelection, lead, sourceCustomValue, sourceSelection]);
+
   return (
     <form action={formAction} className="space-y-6" onReset={handleReset}>
       <AuthFeedback state={state} />
@@ -112,13 +139,11 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Contacto y seguimiento comercial</CardTitle>
-          <CardDescription>Datos principales para identificar al prospecto, asignar responsable y definir la siguiente acción.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <section className="grid gap-4 md:grid-cols-2">
+      <OpsFormSection
+        title="Contacto y seguimiento comercial"
+        description="Datos principales para identificar al prospecto, asignar responsable y definir la siguiente acción."
+      >
+          <section className="ops-form-grid">
             <Field label="Nombre" required>
               <Input name="full_name" defaultValue={lead?.full_name ?? ''} placeholder="Nombre del prospecto" required />
             </Field>
@@ -129,7 +154,7 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
               <Input name="email" type="email" defaultValue={lead?.email ?? ''} placeholder="contacto@empresa.com" />
             </Field>
             <Field label="Idioma">
-              <SelectField name="language" defaultValue={lead?.language ?? 'es'} options={leadLanguageOptions} />
+              <SelectField name="language" defaultValue={lead?.language ?? smartDefaults.language ?? 'es'} options={leadLanguageOptions} />
             </Field>
 
             <CustomValueField
@@ -155,7 +180,7 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
             </Field>
 
             <Field label="Prioridad">
-              <SelectField name="priority" defaultValue={lead?.priority ?? 'media'} options={leadPriorityOptions} />
+              <SelectField name="priority" defaultValue={lead?.priority ?? smartDefaults.priority ?? 'media'} options={leadPriorityOptions} />
             </Field>
             <Field label="Próxima acción" required>
               <Input name="next_action" defaultValue={lead?.next_action ?? ''} placeholder="Llamar y validar fecha / enviar propuesta / reagendar" required />
@@ -178,16 +203,13 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
               </select>
             </Field>
           </section>
-        </CardContent>
-      </Card>
+      </OpsFormSection>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Evento, servicio e información adicional</CardTitle>
-          <CardDescription>Completa estos datos cuando ya exista contexto más claro del evento o del interés comercial.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <section className="grid gap-4 md:grid-cols-2">
+      <OpsFormSection
+        title="Evento, servicio e información adicional"
+        description="Completa estos datos cuando ya exista contexto más claro del evento o del interés comercial."
+      >
+          <section className="ops-form-grid">
             <CustomValueField
               label="Tipo de evento"
               name="event_type"
@@ -280,8 +302,7 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
               placeholder="Contexto interno, objeciones, acuerdos o datos clave del prospecto."
             />
           </Field>
-        </CardContent>
-      </Card>
+      </OpsFormSection>
 
       <div className="rounded-2xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
         <div className="flex items-start gap-3">
@@ -292,7 +313,7 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+      <OpsFormStickyFooter>
         <Button type="submit" size="lg">
           <Sparkles className="size-4" />
           {submitLabel}
@@ -300,7 +321,7 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
         <Button type="reset" variant="outline" size="lg">
           Restablecer campos
         </Button>
-      </div>
+      </OpsFormStickyFooter>
     </form>
   );
 }
