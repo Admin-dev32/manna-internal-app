@@ -4,7 +4,7 @@ import { getPreEventsOverviewPageData } from '@/services/pre-events/queries';
 
 export default async function ReservasPage() {
   await requirePermission('events.view');
-  const { clients, preEvents, quotes } = await getPreEventsOverviewPageData();
+  const { clients, preEvents, quotes, latestInvoiceByQuoteId, paymentLinksByPreEventId } = await getPreEventsOverviewPageData();
 
   return (
     <div className="flex flex-col gap-6">
@@ -17,7 +17,13 @@ export default async function ReservasPage() {
         </div>
       </section>
 
-      <PreEventsOperationsBoard preEvents={preEvents} clients={clients} quotes={quotes} />
+      <PreEventsOperationsBoard
+        preEvents={preEvents}
+        clients={clients}
+        quotes={quotes}
+        latestInvoiceByQuoteId={latestInvoiceByQuoteId}
+        paymentLinksByPreEventId={paymentLinksByPreEventId}
+      />
     </div>
   );
 }

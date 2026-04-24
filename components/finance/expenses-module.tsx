@@ -11,6 +11,7 @@ import {
   approveFinancialExpenseAction,
   rejectFinancialExpenseAction,
   submitFinancialExpenseAction,
+  uploadFinancialExpenseReceiptAction,
   upsertFinancialExpenseAction,
 } from '@/services/finance/actions';
 import { initialFinancialExpenseActionState } from '@/services/finance/expenses-form-state';
@@ -37,6 +38,13 @@ function statusLabel(status: FinancialExpenseRecord['status']) {
     default:
       return status;
   }
+}
+
+function getReceiptUploadedAt(expense: FinancialExpenseRecord) {
+  const value = expense.receipt_metadata?.uploadedAt;
+  if (typeof value !== 'string' || !value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
 export function ExpensesModule({
@@ -225,10 +233,22 @@ export function ExpensesModule({
                       <p>Proveedor/Payee: {expense.vendor_name ?? 'Sin dato'}</p>
                       <p>Evento: {expense.event_id ? eventLabelMap[expense.event_id] ?? `#${expense.event_id.slice(0, 8)}` : 'No aplica'}</p>
                       <p className="md:col-span-2">Notas: {expense.notes ?? 'Sin notas'}</p>
-                      <p className="md:col-span-2">Comprobante: {expense.receipt_file_name ?? 'No cargado (solo metadata preparada)'}</p>
+                      <div className="md:col-span-2 space-y-1">
+                        <p>Comprobante: {expense.receipt_file_name ?? 'No cargado'}</p>
+                        <p className="text-xs">
+                          Fecha de carga: {getReceiptUploadedAt(expense) ?? 'Sin registro'}
+                        </p>
+                        {expense.receipt_file_name && expense.receipt_signed_url ? (
+                          <a href={expense.receipt_signed_url} target="_blank" rel="noreferrer noopener" className="text-xs text-primary underline">
+                            Ver / descargar comprobante
+                          </a>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="mt-3 flex flex-wrap gap-2">
+                      {canManage ? <ExpenseReceiptUploadForm expenseId={expense.id} /> : null}
+
                       {canManage && expense.status === 'draft' ? (
                         <form action={submitFinancialExpenseAction.bind(null, expense.id)}>
                           <Button type="submit" size="sm" variant="outline">
@@ -268,5 +288,28 @@ export function ExpensesModule({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function ExpenseReceiptUploadForm({ expenseId }: { expenseId: string }) {
+  const [uploadState, uploadAction] = useActionState(uploadFinancialExpenseReceiptAction, initialFinancialExpenseActionState);
+
+  return (
+    <form action={uploadAction} className="flex flex-wrap items-end gap-2">
+      <input type="hidden" name="expense_id" value={expenseId} />
+      <input
+        name="receipt_file"
+        type="file"
+        required
+        accept="application/pdf,image/jpeg,image/png,image/webp"
+        className="max-w-[260px] rounded-xl border border-input bg-background px-3 py-2 text-xs"
+      />
+      <Button type="submit" size="sm" variant="outline">
+        Upload receipt
+      </Button>
+      {uploadState.status !== 'idle' ? (
+        <p className={`text-xs ${uploadState.status === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{uploadState.message}</p>
+      ) : null}
+    </form>
   );
 }

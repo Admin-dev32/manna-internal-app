@@ -4,6 +4,8 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getClientById, getClientByLeadId } from '@/services/clients/queries';
 import { getLeadById } from '@/services/leads/queries';
 import { getPaymentLinksBySource } from '@/services/payments/queries';
+import type { InvoiceRecord } from '@/types/invoices';
+import type { PaymentLinkRecord } from '@/types/payments';
 import type { EventCalendarSyncRecord } from '@/types/calendar';
 import type { ClientRecord } from '@/types/clients';
 import type { LeadProfileOption } from '@/types/leads';
@@ -136,7 +138,9 @@ export async function getPreEventsOverviewPageData() {
     return {
       preEvents: [] as PreEventRecord[],
       clients: {} as Record<string, ClientRecord>,
-      quotes: {} as Record<string, Pick<QuoteRecord, 'id' | 'status'>>,
+      quotes: {} as Record<string, Pick<QuoteRecord, 'id' | 'status' | 'total_amount' | 'expected_deposit' | 'estimated_balance'>>,
+      latestInvoiceByQuoteId: {} as Record<string, InvoiceRecord | null>,
+      paymentLinksByPreEventId: {} as Record<string, PaymentLinkRecord[]>,
     };
   }
 
@@ -147,23 +151,45 @@ export async function getPreEventsOverviewPageData() {
     return {
       preEvents,
       clients: {} as Record<string, ClientRecord>,
-      quotes: {} as Record<string, Pick<QuoteRecord, 'id' | 'status'>>,
+      quotes: {} as Record<string, Pick<QuoteRecord, 'id' | 'status' | 'total_amount' | 'expected_deposit' | 'estimated_balance'>>,
+      latestInvoiceByQuoteId: {} as Record<string, InvoiceRecord | null>,
+      paymentLinksByPreEventId: {} as Record<string, PaymentLinkRecord[]>,
     };
   }
 
   const clientIds = [...new Set(preEvents.map((preEvent) => preEvent.client_id))];
   const quoteIds = [...new Set(preEvents.map((preEvent) => preEvent.source_quote_id))];
+  const preEventIds = [...new Set(preEvents.map((preEvent) => preEvent.id))];
 
-  const [{ data: clientsData }, { data: quotesData }] = await Promise.all([
+  const [{ data: clientsData }, { data: quotesData }, { data: invoicesData }, { data: linksData }] = await Promise.all([
     supabase.from('clients').select('*').in('id', clientIds),
-    supabase.from('quotes').select('id, status').in('id', quoteIds),
+    supabase.from('quotes').select('id, status, total_amount, expected_deposit, estimated_balance').in('id', quoteIds),
+    supabase.from('invoices').select('*').in('quote_id', quoteIds).order('created_at', { ascending: false }),
+    supabase.from('payment_links').select('*').eq('source_record_type', 'pre_event').in('source_record_id', preEventIds).order('created_at', { ascending: false }),
   ]);
+
+  const latestInvoiceByQuoteId = ((invoicesData ?? []) as InvoiceRecord[]).reduce<Record<string, InvoiceRecord | null>>((acc, invoice) => {
+    if (!acc[invoice.quote_id]) {
+      acc[invoice.quote_id] = invoice;
+    }
+    return acc;
+  }, {});
+
+  const paymentLinksByPreEventId = ((linksData ?? []) as PaymentLinkRecord[]).reduce<Record<string, PaymentLinkRecord[]>>((acc, link) => {
+    if (!acc[link.source_record_id]) {
+      acc[link.source_record_id] = [];
+    }
+    acc[link.source_record_id].push(link);
+    return acc;
+  }, {});
 
   return {
     preEvents,
     clients: Object.fromEntries(((clientsData ?? []) as ClientRecord[]).map((client) => [client.id, client])),
     quotes: Object.fromEntries(
-      (((quotesData ?? []) as Array<Pick<QuoteRecord, 'id' | 'status'>>).map((quote) => [quote.id, quote])),
-    ) as Record<string, Pick<QuoteRecord, 'id' | 'status'>>,
+      (((quotesData ?? []) as Array<Pick<QuoteRecord, 'id' | 'status' | 'total_amount' | 'expected_deposit' | 'estimated_balance'>>).map((quote) => [quote.id, quote])),
+    ) as Record<string, Pick<QuoteRecord, 'id' | 'status' | 'total_amount' | 'expected_deposit' | 'estimated_balance'>>,
+    latestInvoiceByQuoteId,
+    paymentLinksByPreEventId,
   };
 }

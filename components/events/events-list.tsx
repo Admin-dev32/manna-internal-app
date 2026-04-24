@@ -2,14 +2,22 @@ import type { Route } from 'next';
 import Link from 'next/link';
 import { CalendarClock, ChevronLeft, ChevronRight, Filter, List, TriangleAlert } from 'lucide-react';
 
+import { BookingStatusLegend } from '@/components/events/booking-status-legend';
+import { CalendarFilterBar } from '@/components/events/calendar-filter-bar';
+import { EventCalendarCard } from '@/components/events/event-calendar-card';
 import { EventStatusBadge } from '@/components/events/event-status-badge';
+import { PaymentStatusBadge } from '@/components/finance/payment-status-badge';
 import { ModulePageLayout } from '@/components/layout/module-page-layout';
+import { getPaymentStatus } from '@/lib/finance/payment-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { EVENT_STATUS_LABELS } from '@/config/events';
 import type { ClientRecord } from '@/types/clients';
 import type { EventChecklistProgress, EventRecord } from '@/types/events';
+import type { InvoiceRecord } from '@/types/invoices';
+import type { PaymentLinkRecord } from '@/types/payments';
+import type { PreEventRecord } from '@/types/pre-events';
+import type { PaymentStatus } from '@/lib/finance/payment-status';
 import type { QuoteRecord } from '@/types/quotes';
 
 function formatDate(value: string) {
@@ -49,10 +57,11 @@ function buildViewHref({
 }: {
   view: 'list' | 'calendar';
   month?: string;
-  filters: { status?: string; from?: string; to?: string };
+  filters: { status?: string; paymentStatus?: string; from?: string; to?: string };
 }) {
   const params = new URLSearchParams();
   if (filters.status && filters.status !== 'todos') params.set('status', filters.status);
+  if (filters.paymentStatus && filters.paymentStatus !== 'todos') params.set('payment_status', filters.paymentStatus);
   if (view === 'list') {
     if (filters.from) params.set('from', filters.from);
     if (filters.to) params.set('to', filters.to);
@@ -70,20 +79,24 @@ export function EventsList({
   clients,
   quotes,
   checklistProgressByEvent,
+  preEventsById,
+  latestInvoiceByQuoteId,
+  paymentLinksByPreEventId,
   filters,
   view,
   month,
 }: {
   events: EventRecord[];
   clients: Record<string, ClientRecord>;
-  quotes: Record<string, Pick<QuoteRecord, 'id' | 'status'>>;
+  quotes: Record<string, Pick<QuoteRecord, 'id' | 'status' | 'total_amount' | 'expected_deposit' | 'estimated_balance'>>;
   checklistProgressByEvent: Record<string, EventChecklistProgress>;
-  filters: { status?: string; from?: string; to?: string };
+  preEventsById: Record<string, PreEventRecord>;
+  latestInvoiceByQuoteId: Record<string, InvoiceRecord | null>;
+  paymentLinksByPreEventId: Record<string, PaymentLinkRecord[]>;
+  filters: { status?: string; paymentStatus?: string; from?: string; to?: string };
   view: 'list' | 'calendar';
   month: string;
 }) {
-  const pendingEvents = events.filter((event) => event.status === 'pendiente' || event.status === 'en_preparacion').length;
-  const upcomingEvents = events.filter((event) => isUpcoming(event.event_date) && event.status !== 'completado' && event.status !== 'cancelado').length;
   const monthBounds = getMonthBounds(month);
   const monthStartWeekday = (monthBounds.firstDay.getUTCDay() + 6) % 7;
   const totalDays = monthBounds.lastDay.getUTCDate();
@@ -92,7 +105,35 @@ export function EventsList({
     if (dayNumber < 1 || dayNumber > totalDays) return null;
     return String(dayNumber).padStart(2, '0');
   });
-  const eventsByDay = events.reduce(
+  const previousMonth = addMonths(month, -1);
+  const nextMonth = addMonths(month, 1);
+
+  const paymentStatusByEventId = Object.fromEntries(
+    events.map((event) => {
+      const quote = quotes[event.source_quote_id];
+      return [
+        event.id,
+        getPaymentStatus({
+          eventStatus: event.status,
+          preEventStatus: preEventsById[event.source_pre_event_id]?.status,
+          quoteTotalAmount: quote?.total_amount ?? null,
+          expectedDeposit: quote?.expected_deposit ?? null,
+          estimatedBalance: quote?.estimated_balance ?? null,
+          invoices: latestInvoiceByQuoteId[event.source_quote_id] ? [latestInvoiceByQuoteId[event.source_quote_id]!] : [],
+          paymentLinks: paymentLinksByPreEventId[event.source_pre_event_id] ?? [],
+        }),
+      ];
+    }),
+  ) as Record<string, ReturnType<typeof getPaymentStatus>>;
+
+  const filteredEvents = events.filter((event) => {
+    if (!filters.paymentStatus || filters.paymentStatus === 'todos') return true;
+    return paymentStatusByEventId[event.id]?.status === (filters.paymentStatus as PaymentStatus);
+  });
+
+  const pendingEvents = filteredEvents.filter((event) => event.status === 'pendiente' || event.status === 'en_preparacion').length;
+  const upcomingEvents = filteredEvents.filter((event) => isUpcoming(event.event_date) && event.status !== 'completado' && event.status !== 'cancelado').length;
+  const eventsByDay = filteredEvents.reduce(
     (accumulator, event) => {
       const day = event.event_date.slice(8, 10);
       const existing = accumulator[day] ?? [];
@@ -102,8 +143,6 @@ export function EventsList({
     },
     {} as Record<string, EventRecord[]>,
   );
-  const previousMonth = addMonths(month, -1);
-  const nextMonth = addMonths(month, 1);
 
   return (
     <ModulePageLayout
@@ -114,7 +153,7 @@ export function EventsList({
     >
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <SummaryCard title="Eventos visibles" value={String(events.length)} hint="Según filtros aplicados" />
+        <SummaryCard title="Eventos visibles" value={String(filteredEvents.length)} hint="Según filtros aplicados" />
         <SummaryCard title="Próximos 7 días" value={String(upcomingEvents)} hint="Pendientes de seguimiento cercano" />
         <SummaryCard title="Pendientes / preparación" value={String(pendingEvents)} hint="Eventos que aún requieren trabajo operativo" />
       </div>
@@ -142,67 +181,9 @@ export function EventsList({
         </CardHeader>
       </Card>
 
-      <Card>
-        <CardHeader className="gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <CardTitle>Filtros operativos</CardTitle>
-            <CardDescription>Refina por estado y rango de fechas para trabajo diario de operación.</CardDescription>
-          </div>
-          <form className="grid w-full gap-3 md:grid-cols-4" method="get">
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary" htmlFor="status">
-                Estado
-              </label>
-              <select
-                id="status"
-                name="status"
-                defaultValue={filters.status ?? 'todos'}
-                className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <option value="todos">Todos</option>
-                {Object.entries(EVENT_STATUS_LABELS).map(([status, label]) => (
-                  <option key={status} value={status}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary" htmlFor="from">
-                Desde
-              </label>
-              <input
-                id="from"
-                type="date"
-                name="from"
-                defaultValue={filters.from ?? ''}
-                className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary" htmlFor="to">
-                Hasta
-              </label>
-              <input
-                id="to"
-                type="date"
-                name="to"
-                defaultValue={filters.to ?? ''}
-                className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              />
-            </div>
-            <div className="flex items-end gap-3">
-              <Button type="submit" variant="outline" className="flex-1">
-                <Filter className="size-4" />
-                Filtrar
-              </Button>
-              <Button asChild variant="ghost" className="flex-1">
-                <Link href={'/eventos' as Route}>Limpiar</Link>
-              </Button>
-            </div>
-          </form>
-        </CardHeader>
-      </Card>
+      <CalendarFilterBar filters={filters} />
+
+      <BookingStatusLegend />
 
       {view === 'list' ? (
         <Card>
@@ -211,16 +192,18 @@ export function EventsList({
           <CardDescription>Escaneo rápido de eventos, estado actual y avance de checklist.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {events.length === 0 ? (
+          {filteredEvents.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
               No hay eventos para los filtros elegidos. Ajusta estado o fechas para revisar la operación.
             </div>
           ) : (
-            events.map((event) => {
+            filteredEvents.map((event) => {
               const progress = checklistProgressByEvent[event.id] ?? { total: 0, completed: 0, pending: 0 };
               const client = clients[event.client_id];
               const isSoon = isUpcoming(event.event_date);
               const needsAttention = event.status === 'pendiente' || progress.pending > 0;
+              const quote = quotes[event.source_quote_id];
+              const paymentStatus = paymentStatusByEventId[event.id];
 
               return (
                 <div key={event.id} className="rounded-3xl border border-border bg-background p-5 shadow-sm">
@@ -230,6 +213,8 @@ export function EventsList({
                         <EventStatusBadge status={event.status} />
                         {isSoon ? <Badge variant="warning">Próximo</Badge> : null}
                         {needsAttention ? <Badge variant="outline">Requiere atención</Badge> : null}
+                        <PaymentStatusBadge result={paymentStatus} />
+                        <Badge variant="outline">Balance: {paymentStatus.amountDue === null ? 'N/D' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(paymentStatus.amountDue)}</Badge>
                       </div>
 
                       <div>
@@ -249,7 +234,7 @@ export function EventsList({
                           {progress.pending > 0 ? `${progress.pending} ítems pendientes` : 'Checklist al día'}
                         </Badge>
                         <Badge variant="outline">Reserva #{event.source_pre_event_id.slice(0, 8)}</Badge>
-                        <Badge variant="outline">Cotización #{quotes[event.source_quote_id]?.id.slice(0, 8) ?? event.source_quote_id.slice(0, 8)}</Badge>
+                        <Badge variant="outline">Cotización #{quote?.id.slice(0, 8) ?? event.source_quote_id.slice(0, 8)}</Badge>
                       </div>
                     </div>
 
@@ -310,18 +295,12 @@ export function EventsList({
                         <p className="text-xs text-muted-foreground">Sin eventos</p>
                       ) : (
                         dayEvents.map((event) => (
-                          <Link
+                          <EventCalendarCard
                             key={event.id}
-                            href={`/eventos/${event.id}` as Route}
-                            className="block rounded-xl border border-border/70 bg-muted/20 p-2 transition hover:border-primary hover:bg-primary/5"
-                          >
-                            <p className="text-xs font-semibold text-foreground">{event.event_type ?? `Evento #${event.id.slice(0, 6)}`}</p>
-                            <p className="text-[11px] text-muted-foreground">{event.event_time} · {clients[event.client_id]?.full_name ?? 'Cliente interno'}</p>
-                            <p className="text-[11px] text-muted-foreground">Servicio: {event.booked_service}</p>
-                            <div className="mt-1">
-                              <EventStatusBadge status={event.status} />
-                            </div>
-                          </Link>
+                            event={event}
+                            clientName={clients[event.client_id]?.full_name ?? 'Cliente interno'}
+                            paymentStatus={paymentStatusByEventId[event.id]}
+                          />
                         ))
                       )}
                     </div>

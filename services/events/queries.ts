@@ -34,6 +34,9 @@ import type {
   InventoryStockMovementView,
 } from '@/types/inventory';
 import type { QuoteRecord } from '@/types/quotes';
+import type { InvoiceRecord } from '@/types/invoices';
+import type { PaymentLinkRecord } from '@/types/payments';
+import type { PreEventRecord } from '@/types/pre-events';
 import type { EventOperationalTemplateApplicationRecord } from '@/types/operational-templates';
 
 export type EventOperationalHubStatus = 'pendiente' | 'listo_para_operar' | 'en_preparacion' | 'en_servicio' | 'cerrado' | 'con_incidencias';
@@ -413,7 +416,10 @@ export async function getEventsOverviewPageData(filters?: { status?: string; fro
     return {
       events: [] as EventRecord[],
       clients: {} as Record<string, ClientRecord>,
-      quotes: {} as Record<string, Pick<QuoteRecord, 'id' | 'status'>>,
+      quotes: {} as Record<string, Pick<QuoteRecord, 'id' | 'status' | 'total_amount' | 'expected_deposit' | 'estimated_balance'>>,
+      preEventsById: {} as Record<string, PreEventRecord>,
+      latestInvoiceByQuoteId: {} as Record<string, InvoiceRecord | null>,
+      paymentLinksByPreEventId: {} as Record<string, PaymentLinkRecord[]>,
       checklistProgressByEvent: {} as Record<string, EventChecklistProgress>,
     };
   }
@@ -439,7 +445,10 @@ export async function getEventsOverviewPageData(filters?: { status?: string; fro
     return {
       events,
       clients: {} as Record<string, ClientRecord>,
-      quotes: {} as Record<string, Pick<QuoteRecord, 'id' | 'status'>>,
+      quotes: {} as Record<string, Pick<QuoteRecord, 'id' | 'status' | 'total_amount' | 'expected_deposit' | 'estimated_balance'>>,
+      preEventsById: {} as Record<string, PreEventRecord>,
+      latestInvoiceByQuoteId: {} as Record<string, InvoiceRecord | null>,
+      paymentLinksByPreEventId: {} as Record<string, PaymentLinkRecord[]>,
       checklistProgressByEvent: {} as Record<string, EventChecklistProgress>,
     };
   }
@@ -447,11 +456,15 @@ export async function getEventsOverviewPageData(filters?: { status?: string; fro
   const clientIds = [...new Set(events.map((event) => event.client_id))];
   const quoteIds = [...new Set(events.map((event) => event.source_quote_id))];
   const eventIds = [...new Set(events.map((event) => event.id))];
+  const preEventIds = [...new Set(events.map((event) => event.source_pre_event_id))];
 
-  const [{ data: clientsData }, { data: quotesData }, { data: checklistData }] = await Promise.all([
+  const [{ data: clientsData }, { data: quotesData }, { data: checklistData }, { data: preEventsData }, { data: invoicesData }, { data: linksData }] = await Promise.all([
     supabase.from('clients').select('*').in('id', clientIds),
-    supabase.from('quotes').select('id, status').in('id', quoteIds),
+    supabase.from('quotes').select('id, status, total_amount, expected_deposit, estimated_balance').in('id', quoteIds),
     supabase.from('event_checklist_items').select('event_id, is_completed').in('event_id', eventIds),
+    supabase.from('pre_events').select('*').in('id', preEventIds),
+    supabase.from('invoices').select('*').in('quote_id', quoteIds).order('created_at', { ascending: false }),
+    supabase.from('payment_links').select('*').eq('source_record_type', 'pre_event').in('source_record_id', preEventIds).order('created_at', { ascending: false }),
   ]);
 
   const checklistProgressByEvent = Object.fromEntries(
@@ -471,13 +484,30 @@ export async function getEventsOverviewPageData(filters?: { status?: string; fro
     }),
   ) as Record<string, EventChecklistProgress>;
 
+  const latestInvoiceByQuoteId = ((invoicesData ?? []) as InvoiceRecord[]).reduce<Record<string, InvoiceRecord | null>>((acc, invoice) => {
+    if (!acc[invoice.quote_id]) {
+      acc[invoice.quote_id] = invoice;
+    }
+    return acc;
+  }, {});
+
+  const paymentLinksByPreEventId = ((linksData ?? []) as PaymentLinkRecord[]).reduce<Record<string, PaymentLinkRecord[]>>((acc, link) => {
+    if (!acc[link.source_record_id]) {
+      acc[link.source_record_id] = [];
+    }
+    acc[link.source_record_id].push(link);
+    return acc;
+  }, {});
+
   return {
     events,
     clients: Object.fromEntries(((clientsData ?? []) as ClientRecord[]).map((client) => [client.id, client])),
-    quotes: Object.fromEntries((((quotesData ?? []) as Array<Pick<QuoteRecord, 'id' | 'status'>>).map((quote) => [quote.id, quote]))) as Record<
-      string,
-      Pick<QuoteRecord, 'id' | 'status'>
-    >,
+    quotes: Object.fromEntries(
+      (((quotesData ?? []) as Array<Pick<QuoteRecord, 'id' | 'status' | 'total_amount' | 'expected_deposit' | 'estimated_balance'>>).map((quote) => [quote.id, quote])),
+    ) as Record<string, Pick<QuoteRecord, 'id' | 'status' | 'total_amount' | 'expected_deposit' | 'estimated_balance'>>,
+    preEventsById: Object.fromEntries(((preEventsData ?? []) as PreEventRecord[]).map((preEvent) => [preEvent.id, preEvent])) as Record<string, PreEventRecord>,
+    latestInvoiceByQuoteId,
+    paymentLinksByPreEventId,
     checklistProgressByEvent,
   };
 }

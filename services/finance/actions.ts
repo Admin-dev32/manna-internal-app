@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 
 import { requireActiveSession } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
+import { buildFinanceReceiptStoragePath, financeReceiptUploadConfig, validateReceiptFile } from '@/lib/finance/receipt-upload';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { FinancialExpenseActionState } from '@/services/finance/expenses-form-state';
 import type {
@@ -368,6 +369,105 @@ export async function submitFinancialExpenseAction(expenseId: string): Promise<v
 
   revalidatePath('/finanzas');
   if (expense.event_id) revalidatePath(`/eventos/${expense.event_id}` as Route);
+}
+
+export async function uploadFinancialExpenseReceiptAction(
+  _previousState: FinancialExpenseActionState,
+  formData: FormData,
+): Promise<FinancialExpenseActionState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  }
+
+  if (!hasPermission(session.user, 'finance.expenses.manage')) {
+    return { status: 'error', message: 'No tienes permisos para subir comprobantes.' };
+  }
+
+  const expenseId = parseText(formData.get('expense_id'));
+  if (!expenseId) {
+    return { status: 'error', message: 'No encontramos el gasto para asociar el comprobante.' };
+  }
+
+  const fileEntry = formData.get('receipt_file');
+  const file = fileEntry instanceof File ? fileEntry : null;
+  if (!file) {
+    return { status: 'error', message: 'Selecciona un archivo de comprobante.' };
+  }
+  const fileValidation = validateReceiptFile(file);
+  if (!fileValidation.ok) {
+    return { status: 'error', message: fileValidation.message };
+  }
+
+  const { data: expense } = await supabase
+    .from('financial_expenses')
+    .select('id, event_id, quote_id, receipt_storage_bucket, receipt_storage_path, receipt_metadata')
+    .eq('id', expenseId)
+    .maybeSingle();
+
+  if (!expense) {
+    return { status: 'error', message: 'El gasto no existe o no está disponible.' };
+  }
+
+  const storagePath = buildFinanceReceiptStoragePath(expenseId, file.name);
+  const upload = await supabase.storage.from(financeReceiptUploadConfig.bucket).upload(storagePath, file, {
+    contentType: file.type || 'application/octet-stream',
+    upsert: false,
+  });
+
+  if (upload.error) {
+    return { status: 'error', message: `No pudimos subir el comprobante (${upload.error.message}).` };
+  }
+
+  const nextReceiptMetadata = {
+    ...((expense.receipt_metadata as Record<string, unknown> | null) ?? {}),
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: session.user.id,
+    mimeType: file.type || 'application/octet-stream',
+    sizeBytes: file.size || null,
+    originalFileName: file.name || null,
+    source: 'finance_expense_upload',
+  };
+
+  const { error: updateError } = await supabase
+    .from('financial_expenses')
+    .update({
+      receipt_file_name: file.name || (storagePath.split('/').at(-1) ?? null),
+      receipt_storage_bucket: financeReceiptUploadConfig.bucket,
+      receipt_storage_path: storagePath,
+      receipt_metadata: nextReceiptMetadata,
+      updated_by: session.user.id,
+    })
+    .eq('id', expenseId);
+
+  if (updateError) {
+    return { status: 'error', message: `Subimos el archivo, pero no pudimos asociarlo (${updateError.code ?? 'error'}).` };
+  }
+
+  await supabase.from('financial_change_logs').insert({
+    entity_type: 'expense',
+    quote_id: expense.quote_id ?? null,
+    settings_id: null,
+    change_kind: 'expense_receipt_uploaded',
+    summary_payload: {
+      expenseId,
+      bucket: financeReceiptUploadConfig.bucket,
+      path: storagePath,
+      fileName: file.name || null,
+      sizeBytes: file.size || null,
+      mimeType: file.type || null,
+    },
+    changed_by: session.user.id,
+  });
+
+  revalidatePath('/finanzas');
+  if (expense.event_id) {
+    revalidatePath(`/eventos/${expense.event_id}` as Route);
+  }
+
+  return { status: 'success', message: 'Comprobante subido y asociado al gasto.' };
 }
 
 export async function reviewFinancialExpenseAction(expenseId: string, decision: 'approved' | 'rejected', formData?: FormData): Promise<void> {
