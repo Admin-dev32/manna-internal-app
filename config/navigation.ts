@@ -17,22 +17,35 @@ export type NavigationIconKey =
   | 'inventario'
   | 'configuracion';
 
+export type NavigationSectionKey = 'comercial' | 'operacion' | 'coordinacion' | 'administracion';
+
 export interface NavigationItem {
   href: Route;
   label: string;
+  shortLabel?: string;
   description: string;
   icon: NavigationIconKey;
   permission: PermissionKey;
+  section: NavigationSectionKey;
   matchPrefixes?: string[];
 }
+
+export const NAVIGATION_SECTION_LABELS: Record<NavigationSectionKey, string> = {
+  comercial: 'Comercial',
+  operacion: 'Operación',
+  coordinacion: 'Coordinación',
+  administracion: 'Administración',
+};
 
 export const navigationItems: NavigationItem[] = [
   {
     href: '/dashboard',
     label: 'Dashboard',
+    shortLabel: 'Inicio',
     description: 'Resumen operativo del negocio.',
     icon: 'dashboard',
     permission: 'dashboard.view',
+    section: 'operacion',
   },
   {
     href: '/finanzas',
@@ -40,6 +53,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Resumen financiero, defaults globales y control interno.',
     icon: 'finanzas',
     permission: 'finance.view',
+    section: 'administracion',
     matchPrefixes: ['/finanzas'],
   },
   {
@@ -48,6 +62,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Área administrativa, permisos y user management.',
     icon: 'configuracion',
     permission: 'admin.users.manage',
+    section: 'administracion',
     matchPrefixes: ['/configuracion'],
   },
   {
@@ -56,6 +71,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Pipeline comercial, detalle del lead y creación de cotizaciones.',
     icon: 'leads',
     permission: 'crm.view',
+    section: 'comercial',
     matchPrefixes: ['/leads'],
   },
   {
@@ -64,6 +80,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Clientes mínimos ya convertidos desde ventas aceptadas.',
     icon: 'clientes',
     permission: 'crm.view',
+    section: 'comercial',
     matchPrefixes: ['/clientes'],
   },
   {
@@ -72,6 +89,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Propuestas comerciales, detalle y seguimiento de venta.',
     icon: 'cotizaciones',
     permission: 'quotes.view',
+    section: 'comercial',
     matchPrefixes: ['/cotizaciones'],
   },
   {
@@ -80,6 +98,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Pre-eventos y reservas iniciales para operación.',
     icon: 'eventos',
     permission: 'events.view',
+    section: 'operacion',
     matchPrefixes: ['/reservas'],
   },
   {
@@ -88,6 +107,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Eventos reales confirmados a partir de reservas listas.',
     icon: 'eventos',
     permission: 'events.view',
+    section: 'operacion',
     matchPrefixes: ['/eventos'],
   },
   {
@@ -96,6 +116,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Trabajo operativo por evento, responsable, prioridad y estado.',
     icon: 'tareas',
     permission: 'tasks.view',
+    section: 'operacion',
     matchPrefixes: ['/tareas'],
   },
   {
@@ -104,6 +125,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Canal global de equipo y conversación por evento.',
     icon: 'chat',
     permission: 'chat.view',
+    section: 'coordinacion',
     matchPrefixes: ['/chat'],
   },
   {
@@ -112,6 +134,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Recordatorios internos y alertas suaves para seguimiento comercial y operativo.',
     icon: 'notificaciones',
     permission: 'notifications.view',
+    section: 'coordinacion',
     matchPrefixes: ['/notificaciones'],
   },
   {
@@ -120,6 +143,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Canales internos de coordinación y seguimiento operativo.',
     icon: 'comunicacion',
     permission: 'communication.view',
+    section: 'coordinacion',
     matchPrefixes: ['/comunicacion'],
   },
   {
@@ -128,7 +152,17 @@ export const navigationItems: NavigationItem[] = [
     description: 'Inbox de tickets/solicitudes internas del equipo.',
     icon: 'tickets',
     permission: 'internal_tickets.manage',
+    section: 'coordinacion',
     matchPrefixes: ['/oficina-solicitudes'],
+  },
+  {
+    href: '/empleados',
+    label: 'Empleados',
+    description: 'Asignaciones, reportes operativos y panel diario del staff.',
+    icon: 'empleados',
+    permission: 'employees.view',
+    section: 'operacion',
+    matchPrefixes: ['/empleados'],
   },
   {
     href: '/inventario',
@@ -136,6 +170,7 @@ export const navigationItems: NavigationItem[] = [
     description: 'Materiales, stock actual y necesidades ligadas a eventos.',
     icon: 'inventario',
     permission: 'inventory.view',
+    section: 'operacion',
     matchPrefixes: ['/inventario'],
   },
 ];

@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light;
   --background: 220 33% 98%;
   --foreground: 222 47% 11%;
   --card: 0 0% 100%;
@@ -24,6 +25,35 @@
   --ring: 160 84% 28%;
   --radius: 1rem;
   --font-sans: 'Inter';
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: 224 38% 10%;
+  --foreground: 210 40% 98%;
+  --card: 222 32% 13%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222 32% 13%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 160 72% 44%;
+  --primary-foreground: 160 40% 10%;
+  --secondary: 217 25% 18%;
+  --secondary-foreground: 210 40% 96%;
+  --muted: 217 23% 18%;
+  --muted-foreground: 215 20% 74%;
+  --accent: 217 22% 22%;
+  --accent-foreground: 210 40% 97%;
+  --destructive: 0 70% 43%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 216 22% 26%;
+  --input: 216 22% 26%;
+  --ring: 160 72% 44%;
 }
 
 * {
@@ -37,6 +67,10 @@ html {
 body {
   @apply bg-background font-sans text-foreground antialiased;
   background-image: radial-gradient(circle at top, rgba(16, 185, 129, 0.10), transparent 35%);
+}
+
+body.dark {
+  background-image: radial-gradient(circle at top, rgba(16, 185, 129, 0.07), transparent 40%);
 }
 
 @layer base {
@@ -59,5 +93,33 @@ body {
 
   .glass-panel {
     @apply rounded-3xl border border-white/70 bg-white/90 shadow-panel backdrop-blur;
+  }
+
+  .module-page {
+    @apply flex flex-col gap-6;
+  }
+
+  .module-page-header {
+    @apply flex flex-col gap-5 rounded-[2rem] border border-border bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 p-6 text-white shadow-panel sm:p-8 lg:flex-row lg:items-start lg:justify-between;
+  }
+
+  .module-page-badge {
+    @apply inline-flex w-fit items-center rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white;
+  }
+
+  .module-page-title {
+    @apply text-2xl font-semibold sm:text-3xl;
+  }
+
+  .ops-table-shell {
+    @apply rounded-2xl border border-border bg-background;
+  }
+
+  .ops-form-grid {
+    @apply grid gap-4 md:grid-cols-2;
+  }
+
+  .ops-section-title {
+    @apply text-xs font-semibold uppercase tracking-[0.18em] text-primary;
   }
 }

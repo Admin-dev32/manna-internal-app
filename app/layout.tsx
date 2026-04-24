@@ -14,7 +14,25 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                try {
+                  var stored = window.localStorage.getItem('manna.theme.mode');
+                  var isNight = stored === 'night';
+                  document.documentElement.classList.toggle('dark', isNight);
+                  document.body && document.body.classList.toggle('dark', isNight);
+                } catch (error) {
+                  // no-op
+                }
+              })();
+            `,
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

@@ -5,7 +5,7 @@ import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { APP_CONFIG } from '@/config/app';
-import { mainNavigationItems } from '@/config/navigation';
+import { mainNavigationItems, NAVIGATION_SECTION_LABELS, type NavigationSectionKey } from '@/config/navigation';
 import { hasPermission } from '@/lib/auth/permissions';
 import { cn } from '@/lib/utils';
 import type { AppUser } from '@/types/auth';
@@ -20,6 +20,14 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggleCollapse, user }: SidebarProps) {
   const visibleNavigationItems = mainNavigationItems.filter((item) => hasPermission(user, item.permission));
+  const sectionOrder: NavigationSectionKey[] = ['comercial', 'operacion', 'coordinacion', 'administracion'];
+  const groupedNavigation = sectionOrder
+    .map((section) => ({
+      section,
+      label: NAVIGATION_SECTION_LABELS[section],
+      items: visibleNavigationItems.filter((item) => item.section === section),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <aside
@@ -64,9 +72,20 @@ export function Sidebar({ collapsed, onToggleCollapse, user }: SidebarProps) {
         {!collapsed ? <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Flujo activo</p> : null}
       </div>
 
-      <nav className={cn('mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-3', collapsed ? 'px-1' : 'pr-1')} aria-label="Navegación principal">
-        {visibleNavigationItems.map((item) => (
-          <NavLink key={item.href} {...item} description={undefined} collapsed={collapsed} />
+      <nav className={cn('mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-3', collapsed ? 'px-1' : 'pr-1')} aria-label="Navegación principal">
+        {groupedNavigation.map((group) => (
+          <div key={group.section} className="space-y-2">
+            {!collapsed ? (
+              <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                {group.label}
+              </p>
+            ) : null}
+            <div className="space-y-2">
+              {group.items.map((item) => (
+                <NavLink key={item.href} {...item} description={undefined} collapsed={collapsed} />
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
     </aside>
