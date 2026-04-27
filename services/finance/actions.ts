@@ -5,15 +5,23 @@ import { revalidatePath } from 'next/cache';
 
 import { requireActiveSession } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
+import {
+  canEditContractorPayoutDraft,
+  normalizeContractorPayoutPaymentMethod,
+  validateContractorPayoutAssignmentConsistency,
+  validateContractorPayoutDraftInput,
+} from '@/lib/finance/contractor-payouts';
 import { buildFinanceReceiptStoragePath, financeReceiptUploadConfig, validateReceiptFile } from '@/lib/finance/receipt-upload';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { FinancialExpenseActionState } from '@/services/finance/expenses-form-state';
 import type {
+  ContractorPayoutRecord,
   EditableFinancialExpense,
   FinancialExpenseType,
   FinancialPercentageBase,
   FinancialExpenseStatus,
 } from '@/types/finance';
+import type { ContractorPayoutDraftInput } from '@/lib/finance/contractor-payouts';
 
 function parseText(value: FormDataEntryValue | null) {
   const normalized = String(value ?? '').trim();
@@ -233,6 +241,181 @@ function normalizeExpenseStatus(value: FormDataEntryValue | null): FinancialExpe
   }
 
   return 'draft';
+}
+
+interface ContractorPayoutActionResult {
+  status: 'success' | 'error';
+  message: string;
+  payout: ContractorPayoutRecord | null;
+}
+
+async function resolveAssignmentForPayout(
+  supabase: NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>,
+  assignmentId: string | null,
+) {
+  if (!assignmentId) return null;
+
+  const { data } = await supabase
+    .from('event_staff_assignments')
+    .select('id, event_id, profile_id')
+    .eq('id', assignmentId)
+    .maybeSingle();
+
+  if (!data) return null;
+  return {
+    id: String(data.id),
+    event_id: String(data.event_id),
+    profile_id: String(data.profile_id),
+  };
+}
+
+export async function createContractorPayoutDraftAction(input: ContractorPayoutDraftInput): Promise<ContractorPayoutActionResult> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.', payout: null };
+  }
+
+  if (!hasPermission(session.user, 'finance.expenses.manage')) {
+    return { status: 'error', message: 'No tienes permisos para registrar pagos de contratistas.', payout: null };
+  }
+
+  const validation = validateContractorPayoutDraftInput(input);
+  if (!validation.ok) {
+    return { status: 'error', message: validation.message, payout: null };
+  }
+
+  const assignment = await resolveAssignmentForPayout(supabase, input.assignment_id ?? null);
+  if (input.assignment_id && !assignment) {
+    return { status: 'error', message: 'assignment_id no existe o no está disponible.', payout: null };
+  }
+
+  const consistencyValidation = validateContractorPayoutAssignmentConsistency({
+    eventId: input.event_id ?? null,
+    profileId: input.profile_id,
+    assignment,
+  });
+
+  if (!consistencyValidation.ok) {
+    return { status: 'error', message: consistencyValidation.message, payout: null };
+  }
+
+  const payload = {
+    profile_id: input.profile_id,
+    event_id: input.event_id ?? null,
+    assignment_id: input.assignment_id ?? null,
+    amount: input.amount,
+    currency: 'usd' as const,
+    payout_date: input.payout_date ?? null,
+    payment_method: normalizeContractorPayoutPaymentMethod(input.payment_method),
+    status: 'draft' as const,
+    notes: input.notes ?? null,
+    external_reference: input.external_reference ?? null,
+    source_expense_id: null,
+    idempotency_key: input.idempotency_key ?? null,
+    created_by: session.user.id,
+    updated_by: session.user.id,
+  };
+
+  const { data, error } = await supabase.from('contractor_payouts').insert(payload).select('*').maybeSingle();
+  if (error || !data) {
+    return { status: 'error', message: `No pudimos crear el pago (${error?.code ?? 'error-desconocido'}).`, payout: null };
+  }
+
+  // Intentionally omitted financial_change_logs for payouts in this phase:
+  // current entity_type union is focused on settings/quote_sheet/invoice/expense.
+
+  revalidatePath('/finanzas');
+  if (payload.event_id) {
+    revalidatePath(`/eventos/${payload.event_id}` as Route);
+  }
+
+  return { status: 'success', message: 'Pago de contratista en borrador creado.', payout: data as ContractorPayoutRecord };
+}
+
+export async function updateContractorPayoutDraftAction(
+  payoutId: string,
+  input: ContractorPayoutDraftInput,
+): Promise<ContractorPayoutActionResult> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.', payout: null };
+  }
+
+  if (!hasPermission(session.user, 'finance.expenses.manage')) {
+    return { status: 'error', message: 'No tienes permisos para editar pagos de contratistas.', payout: null };
+  }
+
+  const { data: current } = await supabase
+    .from('contractor_payouts')
+    .select('*')
+    .eq('id', payoutId)
+    .maybeSingle();
+
+  const currentPayout = (current as ContractorPayoutRecord | null) ?? null;
+  if (!currentPayout) {
+    return { status: 'error', message: 'No encontramos el payout para editar.', payout: null };
+  }
+
+  if (!canEditContractorPayoutDraft(currentPayout.status)) {
+    return { status: 'error', message: 'Solo los payouts en draft se pueden editar.', payout: null };
+  }
+
+  const validation = validateContractorPayoutDraftInput(input);
+  if (!validation.ok) {
+    return { status: 'error', message: validation.message, payout: null };
+  }
+
+  const assignment = await resolveAssignmentForPayout(supabase, input.assignment_id ?? null);
+  if (input.assignment_id && !assignment) {
+    return { status: 'error', message: 'assignment_id no existe o no está disponible.', payout: null };
+  }
+
+  const consistencyValidation = validateContractorPayoutAssignmentConsistency({
+    eventId: input.event_id ?? null,
+    profileId: input.profile_id,
+    assignment,
+  });
+
+  if (!consistencyValidation.ok) {
+    return { status: 'error', message: consistencyValidation.message, payout: null };
+  }
+
+  const payload = {
+    profile_id: input.profile_id,
+    event_id: input.event_id ?? null,
+    assignment_id: input.assignment_id ?? null,
+    amount: input.amount,
+    currency: 'usd' as const,
+    payout_date: input.payout_date ?? null,
+    payment_method: normalizeContractorPayoutPaymentMethod(input.payment_method),
+    notes: input.notes ?? null,
+    external_reference: input.external_reference ?? null,
+    source_expense_id: null,
+    idempotency_key: input.idempotency_key ?? null,
+    updated_by: session.user.id,
+  };
+
+  const { data, error } = await supabase.from('contractor_payouts').update(payload).eq('id', payoutId).select('*').maybeSingle();
+  if (error || !data) {
+    return { status: 'error', message: `No pudimos actualizar el pago (${error?.code ?? 'error-desconocido'}).`, payout: null };
+  }
+
+  // Intentionally omitted financial_change_logs for payouts in this phase:
+  // current entity_type union is focused on settings/quote_sheet/invoice/expense.
+
+  revalidatePath('/finanzas');
+  if (currentPayout.event_id) {
+    revalidatePath(`/eventos/${currentPayout.event_id}` as Route);
+  }
+  if (payload.event_id && payload.event_id !== currentPayout.event_id) {
+    revalidatePath(`/eventos/${payload.event_id}` as Route);
+  }
+
+  return { status: 'success', message: 'Pago de contratista en borrador actualizado.', payout: data as ContractorPayoutRecord };
 }
 
 export async function upsertFinancialExpenseAction(

@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { ClientRecord } from '@/types/clients';
 import type { EventRecord, EventFinanceSnapshot } from '@/types/events';
 import type {
+  ContractorPayoutRecord,
   EditableFinancialExpense,
   FinancialSettingsExpenseRecord,
   FinancialSettingsRecord,
@@ -259,6 +260,100 @@ export async function getFinancialExpensesByEventId(eventId: string) {
       } satisfies FinancialExpenseRecord;
     }),
   );
+}
+
+export interface ContractorPayoutReadModel extends ContractorPayoutRecord {
+  profile_full_name: string | null;
+  profile_email: string | null;
+  event_type: string | null;
+  event_date: string | null;
+  assignment_role: string | null;
+  assignment_status: string | null;
+}
+
+function mapContractorPayoutReadModel(record: Record<string, unknown>): ContractorPayoutReadModel {
+  const profile = (record.profile as Record<string, unknown> | null) ?? null;
+  const event = (record.event as Record<string, unknown> | null) ?? null;
+  const assignment = (record.assignment as Record<string, unknown> | null) ?? null;
+
+  return {
+    ...(record as unknown as ContractorPayoutRecord),
+    profile_full_name: (profile?.full_name as string | null) ?? null,
+    profile_email: (profile?.email as string | null) ?? null,
+    event_type: (event?.event_type as string | null) ?? null,
+    event_date: (event?.event_date as string | null) ?? null,
+    assignment_role: (assignment?.assignment_role as string | null) ?? null,
+    assignment_status: (assignment?.assignment_status as string | null) ?? null,
+  };
+}
+
+export async function getContractorPayoutsByEventId(eventId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as ContractorPayoutReadModel[];
+
+  const { data, error } = await supabase
+    .from('contractor_payouts')
+    .select(
+      `
+      *,
+      profile:profiles!contractor_payouts_profile_id_fkey(full_name, email),
+      event:events!contractor_payouts_event_id_fkey(event_type, event_date),
+      assignment:event_staff_assignments!contractor_payouts_assignment_id_fkey(assignment_role, assignment_status)
+    `,
+    )
+    .eq('event_id', eventId)
+    .order('payout_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(120);
+
+  if (error) return [] as ContractorPayoutReadModel[];
+  return (data ?? []).map((row) => mapContractorPayoutReadModel(row as Record<string, unknown>));
+}
+
+export async function getContractorPayoutsByProfileId(profileId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as ContractorPayoutReadModel[];
+
+  const { data, error } = await supabase
+    .from('contractor_payouts')
+    .select(
+      `
+      *,
+      profile:profiles!contractor_payouts_profile_id_fkey(full_name, email),
+      event:events!contractor_payouts_event_id_fkey(event_type, event_date),
+      assignment:event_staff_assignments!contractor_payouts_assignment_id_fkey(assignment_role, assignment_status)
+    `,
+    )
+    .eq('profile_id', profileId)
+    .order('payout_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(120);
+
+  if (error) return [] as ContractorPayoutReadModel[];
+  return (data ?? []).map((row) => mapContractorPayoutReadModel(row as Record<string, unknown>));
+}
+
+export async function getRecentContractorPayouts(limit = 30) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as ContractorPayoutReadModel[];
+
+  const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 120) : 30;
+
+  const { data, error } = await supabase
+    .from('contractor_payouts')
+    .select(
+      `
+      *,
+      profile:profiles!contractor_payouts_profile_id_fkey(full_name, email),
+      event:events!contractor_payouts_event_id_fkey(event_type, event_date),
+      assignment:event_staff_assignments!contractor_payouts_assignment_id_fkey(assignment_role, assignment_status)
+    `,
+    )
+    .order('created_at', { ascending: false })
+    .limit(safeLimit);
+
+  if (error) return [] as ContractorPayoutReadModel[];
+  return (data ?? []).map((row) => mapContractorPayoutReadModel(row as Record<string, unknown>));
 }
 
 export interface FinanceOverviewEventProfitRow {
