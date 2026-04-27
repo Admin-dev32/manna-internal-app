@@ -5,7 +5,7 @@ import { getEventsOverviewPageData } from '@/services/events/queries';
 export default async function EventosPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ status?: string; from?: string; to?: string; view?: string; month?: string }>;
+  searchParams?: Promise<{ status?: string; payment_status?: string; from?: string; to?: string; view?: string; month?: string }>;
 }) {
   await requirePermission('events.view');
 
@@ -20,10 +20,11 @@ export default async function EventosPage({
 
   const filters = {
     status: resolvedSearchParams?.status ?? 'todos',
+    paymentStatus: resolvedSearchParams?.payment_status ?? 'todos',
     from: resolvedSearchParams?.from ?? (requestedView === 'calendar' ? monthStart : ''),
     to: resolvedSearchParams?.to ?? (requestedView === 'calendar' ? monthEnd : ''),
   };
-  const { events, clients, quotes, checklistProgressByEvent } = await getEventsOverviewPageData(filters);
+  const { events, clients, quotes, preEventsById, latestInvoiceByQuoteId, paymentLinksByPreEventId, checklistProgressByEvent } = await getEventsOverviewPageData(filters);
 
   return (
     <EventsList
@@ -31,6 +32,9 @@ export default async function EventosPage({
       clients={clients}
       quotes={quotes}
       checklistProgressByEvent={checklistProgressByEvent}
+      preEventsById={preEventsById}
+      latestInvoiceByQuoteId={latestInvoiceByQuoteId}
+      paymentLinksByPreEventId={paymentLinksByPreEventId}
       filters={filters}
       view={requestedView}
       month={requestedMonth}

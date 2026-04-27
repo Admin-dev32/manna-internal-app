@@ -7,9 +7,13 @@ export type FinancialPercentageBase = (typeof FINANCIAL_PERCENTAGE_BASES)[number
 
 export const FINANCIAL_EXPENSE_SCOPES = ['event', 'general'] as const;
 export const FINANCIAL_EXPENSE_STATUSES = ['draft', 'submitted', 'approved', 'rejected'] as const;
+export const CONTRACTOR_PAYOUT_STATUSES = ['draft', 'approved', 'paid', 'cancelled', 'reversed'] as const;
+export const CONTRACTOR_PAYOUT_PAYMENT_METHODS = ['cash', 'zelle', 'bank_transfer', 'card', 'other'] as const;
 
 export type FinancialExpenseScope = (typeof FINANCIAL_EXPENSE_SCOPES)[number];
 export type FinancialExpenseStatus = (typeof FINANCIAL_EXPENSE_STATUSES)[number];
+export type ContractorPayoutStatus = (typeof CONTRACTOR_PAYOUT_STATUSES)[number];
+export type ContractorPayoutPaymentMethod = (typeof CONTRACTOR_PAYOUT_PAYMENT_METHODS)[number];
 
 export interface FinancialSettingsRecord {
   id: string;
@@ -135,11 +139,32 @@ export interface FinancialExpenseRecord {
   receipt_file_name: string | null;
   receipt_storage_bucket: string | null;
   receipt_storage_path: string | null;
+  receipt_signed_url?: string | null;
   receipt_metadata: Record<string, unknown>;
   submitted_at: string | null;
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContractorPayoutRecord {
+  id: string;
+  profile_id: string;
+  event_id: string | null;
+  assignment_id: string | null;
+  amount: number | string;
+  currency: 'usd';
+  payout_date: string | null;
+  payment_method: ContractorPayoutPaymentMethod;
+  status: ContractorPayoutStatus;
+  notes: string | null;
+  external_reference: string | null;
+  source_expense_id: string | null;
+  idempotency_key: string | null;
   created_by: string;
   updated_by: string;
   created_at: string;

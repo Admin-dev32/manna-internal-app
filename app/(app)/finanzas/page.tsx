@@ -1,16 +1,21 @@
+import { EventProfitTable } from '@/components/finance/event-profit-table';
 import { ExpensesModule } from '@/components/finance/expenses-module';
+import { FinanceOverviewCards } from '@/components/finance/finance-overview-cards';
 import { FinancialSettingsForm } from '@/components/finance/financial-settings-form';
+import { ProjectedVsActualPanel } from '@/components/finance/projected-vs-actual-panel';
+import { RevenuePipeline } from '@/components/finance/revenue-pipeline';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { requirePermission } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
-import { getFinancialExpenses, getFinancialSettings } from '@/services/finance/queries';
+import { getFinancialExpenses, getFinanceOverviewData, getFinancialSettings } from '@/services/finance/queries';
 
 export default async function FinanzasPage() {
-  const [session, { settings, expenses }, expensesModuleData] = await Promise.all([
+  const [session, { settings, expenses }, expensesModuleData, overview] = await Promise.all([
     requirePermission('finance.view'),
     getFinancialSettings(),
     getFinancialExpenses(),
+    getFinanceOverviewData(),
   ]);
 
   const canEditDefaults = Boolean(session.user && hasPermission(session.user, 'finance.manage_defaults'));
@@ -36,6 +41,33 @@ export default async function FinanzasPage() {
           </p>
         </div>
       </section>
+
+
+      <FinanceOverviewCards
+        expectedIncome={overview.expectedIncome}
+        knownPaidIncome={overview.knownPaidIncome}
+        pendingBalance={overview.pendingBalance}
+        projectedExpenses={overview.projectedExpenses}
+        actualApprovedExpenses={overview.actualApprovedExpenses}
+        projectedProfit={overview.projectedProfit}
+        knownProfit={overview.knownProfit}
+      />
+      <p className="text-sm text-muted-foreground">
+        These totals are based on currently available payment signals and are not a ledger-confirmed cash report yet. Overview is based on recent
+        reservations/events for now.
+      </p>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <RevenuePipeline rows={overview.reservationsPipeline} />
+        <ProjectedVsActualPanel
+          projectedExpenses={overview.projectedExpenses}
+          actualApprovedExpenses={overview.actualApprovedExpenses}
+          projectedProfit={overview.projectedProfit}
+          knownProfit={overview.knownProfit}
+        />
+      </div>
+
+      <EventProfitTable rows={overview.eventsProfitability} />
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-6">
