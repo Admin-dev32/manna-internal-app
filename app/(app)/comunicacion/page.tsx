@@ -8,10 +8,10 @@ const allowedChannels = new Set<CommunicationHubFilters['channel']>(['all', 'men
 const allowedTimeframes = new Set<CommunicationHubFilters['timeframe']>(['all', '24h', '7d']);
 
 function normalizeFilters(raw: { module?: string; channel?: string; timeframe?: string }): CommunicationHubFilters {
-  const module = raw.module && raw.module !== 'all' && allowedModules.has(raw.module as InternalCommentEntityType) ? (raw.module as InternalCommentEntityType) : 'all';
+  const moduleFilter = raw.module && raw.module !== 'all' && allowedModules.has(raw.module as InternalCommentEntityType) ? (raw.module as InternalCommentEntityType) : 'all';
   const channel = raw.channel && allowedChannels.has(raw.channel as CommunicationHubFilters['channel']) ? (raw.channel as CommunicationHubFilters['channel']) : 'all';
   const timeframe = raw.timeframe && allowedTimeframes.has(raw.timeframe as CommunicationHubFilters['timeframe']) ? (raw.timeframe as CommunicationHubFilters['timeframe']) : 'all';
-  return { module, channel, timeframe };
+  return { module: moduleFilter, channel, timeframe };
 }
 
 export default async function ComunicacionPage({

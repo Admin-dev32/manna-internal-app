@@ -217,7 +217,7 @@ export async function getCommunicationHubData(filters?: Partial<CommunicationHub
   }
 
   const channel = filters?.channel ?? 'all';
-  const module = filters?.module ?? 'all';
+  const moduleFilter = filters?.module ?? 'all';
   const timeframe = filters?.timeframe ?? 'all';
 
   let commentsQuery = supabase
@@ -226,8 +226,8 @@ export async function getCommunicationHubData(filters?: Partial<CommunicationHub
     .order('created_at', { ascending: false })
     .limit(150);
 
-  if (module !== 'all') {
-    commentsQuery = commentsQuery.eq('entity_type', module);
+  if (moduleFilter !== 'all') {
+    commentsQuery = commentsQuery.eq('entity_type', moduleFilter);
   }
 
   if (timeframe === '24h') {

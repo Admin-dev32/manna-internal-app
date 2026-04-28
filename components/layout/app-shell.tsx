@@ -22,28 +22,25 @@ const WELCOME_STORAGE_KEY = 'manna.welcome.seen.v1';
 type ThemeMode = 'day' | 'night';
 
 export function AppShell({ session, children }: AppShellProps) {
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
+    () => (typeof window !== 'undefined' ? window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true' : false),
+  );
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
-  const [themeMode, setThemeMode] = useState<ThemeMode>('day');
-  const [hasSeenWelcome, setHasSeenWelcome] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    const storedValue = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
-    if (storedValue === 'true') {
-      setIsSidebarCollapsed(true);
-    }
-  }, []);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window === 'undefined') return 'day';
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return storedTheme === 'night' || storedTheme === 'day' ? storedTheme : 'day';
+  });
+  const [hasSeenWelcome, setHasSeenWelcome] = useState<boolean | null>(() => {
+    if (!session.user) return null;
+    if (typeof window === 'undefined') return null;
+    const key = `${WELCOME_STORAGE_KEY}:${session.user.id}`;
+    return window.sessionStorage.getItem(key) === 'true';
+  });
 
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isSidebarCollapsed));
   }, [isSidebarCollapsed]);
-
-  useEffect(() => {
-    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (storedTheme === 'night' || storedTheme === 'day') {
-      setThemeMode(storedTheme);
-    }
-  }, []);
 
   useEffect(() => {
     const isNight = themeMode === 'night';
@@ -51,12 +48,6 @@ export function AppShell({ session, children }: AppShellProps) {
     document.body.classList.toggle('dark', isNight);
     window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
   }, [themeMode]);
-
-  useEffect(() => {
-    if (!session.user) return;
-    const key = `${WELCOME_STORAGE_KEY}:${session.user.id}`;
-    setHasSeenWelcome(window.sessionStorage.getItem(key) === 'true');
-  }, [session.user]);
 
   if (!session.user) {
     return <div className="page-shell">No hay sesión activa.</div>;
