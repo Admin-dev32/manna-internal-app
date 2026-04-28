@@ -6,18 +6,25 @@ import { revalidatePath } from 'next/cache';
 import { requireActiveSession } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
 import {
+  canApproveContractorPayout,
   canEditContractorPayoutDraft,
+  canMarkContractorPayoutPaid,
   normalizeContractorPayoutPaymentMethod,
+  canCancelContractorPayout,
+  canTransitionContractorPayoutStatus,
   validateContractorPayoutAssignmentConsistency,
   validateContractorPayoutDraftInput,
+  validateContractorPayoutPaidInput,
 } from '@/lib/finance/contractor-payouts';
+import { resolveLegacyExpenseCategoryText } from '@/lib/finance/expense-categories';
 import { buildFinanceReceiptStoragePath, financeReceiptUploadConfig, validateReceiptFile } from '@/lib/finance/receipt-upload';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { FinancialExpenseActionState } from '@/services/finance/expenses-form-state';
 import type {
-  ContractorPayoutRecord,
-  EditableFinancialExpense,
-  FinancialExpenseType,
+    ContractorPayoutRecord,
+    EditableFinancialExpense,
+    FinancialExpenseCategoryRecord,
+    FinancialExpenseType,
   FinancialPercentageBase,
   FinancialExpenseStatus,
 } from '@/types/finance';
@@ -249,6 +256,12 @@ interface ContractorPayoutActionResult {
   payout: ContractorPayoutRecord | null;
 }
 
+interface MarkContractorPayoutPaidInput {
+  payout_date?: string | null;
+  payment_method?: string | null;
+  external_reference?: string | null;
+}
+
 async function resolveAssignmentForPayout(
   supabase: NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>,
   assignmentId: string | null,
@@ -418,6 +431,160 @@ export async function updateContractorPayoutDraftAction(
   return { status: 'success', message: 'Pago de contratista en borrador actualizado.', payout: data as ContractorPayoutRecord };
 }
 
+export async function approveContractorPayoutAction(payoutId: string): Promise<ContractorPayoutActionResult> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.', payout: null };
+  }
+
+  if (!hasPermission(session.user, 'finance.expenses.approve')) {
+    return { status: 'error', message: 'No tienes permisos para aprobar pagos de contratistas.', payout: null };
+  }
+
+  const { data: current } = await supabase.from('contractor_payouts').select('*').eq('id', payoutId).maybeSingle();
+  const currentPayout = (current as ContractorPayoutRecord | null) ?? null;
+  if (!currentPayout) {
+    return { status: 'error', message: 'No encontramos el payout para aprobar.', payout: null };
+  }
+
+  if (!canApproveContractorPayout(currentPayout.status)) {
+    return { status: 'error', message: 'Solo los payouts en draft se pueden aprobar.', payout: null };
+  }
+
+  const { data, error } = await supabase
+    .from('contractor_payouts')
+    .update({
+      status: 'approved',
+      updated_by: session.user.id,
+    })
+    .eq('id', payoutId)
+    .select('*')
+    .maybeSingle();
+
+  if (error || !data) {
+    return { status: 'error', message: `No pudimos aprobar el payout (${error?.code ?? 'error-desconocido'}).`, payout: null };
+  }
+
+  // Intentionally omitted financial_change_logs for payouts in this phase:
+  // current entity_type union is focused on settings/quote_sheet/invoice/expense.
+
+  revalidatePath('/finanzas');
+  if (currentPayout.event_id) {
+    revalidatePath(`/eventos/${currentPayout.event_id}` as Route);
+  }
+
+  return { status: 'success', message: 'Pago de contratista aprobado.', payout: data as ContractorPayoutRecord };
+}
+
+export async function markContractorPayoutPaidAction(
+  payoutId: string,
+  input: MarkContractorPayoutPaidInput = {},
+): Promise<ContractorPayoutActionResult> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.', payout: null };
+  }
+
+  if (!hasPermission(session.user, 'finance.expenses.manage') && !hasPermission(session.user, 'finance.expenses.approve')) {
+    return { status: 'error', message: 'No tienes permisos para marcar pagos de contratistas como pagados.', payout: null };
+  }
+
+  const { data: current } = await supabase.from('contractor_payouts').select('*').eq('id', payoutId).maybeSingle();
+  const currentPayout = (current as ContractorPayoutRecord | null) ?? null;
+  if (!currentPayout) {
+    return { status: 'error', message: 'No encontramos el payout para marcar como pagado.', payout: null };
+  }
+
+  if (!canMarkContractorPayoutPaid(currentPayout.status)) {
+    return { status: 'error', message: 'Solo los payouts en approved se pueden marcar como pagados.', payout: null };
+  }
+
+  const validation = validateContractorPayoutPaidInput(input);
+  if (!validation.ok) {
+    return { status: 'error', message: validation.message, payout: null };
+  }
+
+  const nextPayoutDate = input.payout_date?.trim() || new Date().toISOString().slice(0, 10);
+
+  const { data, error } = await supabase
+    .from('contractor_payouts')
+    .update({
+      status: 'paid',
+      payout_date: nextPayoutDate,
+      payment_method: input.payment_method ? normalizeContractorPayoutPaymentMethod(input.payment_method) : currentPayout.payment_method,
+      external_reference: input.external_reference ?? currentPayout.external_reference,
+      updated_by: session.user.id,
+    })
+    .eq('id', payoutId)
+    .select('*')
+    .maybeSingle();
+
+  if (error || !data) {
+    return { status: 'error', message: `No pudimos marcar el payout como pagado (${error?.code ?? 'error-desconocido'}).`, payout: null };
+  }
+
+  // Intentionally omitted financial_change_logs for payouts in this phase:
+  // current entity_type union is focused on settings/quote_sheet/invoice/expense.
+
+  revalidatePath('/finanzas');
+  if (currentPayout.event_id) {
+    revalidatePath(`/eventos/${currentPayout.event_id}` as Route);
+  }
+
+  return { status: 'success', message: 'Pago de contratista marcado como pagado.', payout: data as ContractorPayoutRecord };
+}
+
+export async function cancelContractorPayoutAction(payoutId: string): Promise<ContractorPayoutActionResult> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.', payout: null };
+  }
+
+  if (!hasPermission(session.user, 'finance.expenses.manage') && !hasPermission(session.user, 'finance.expenses.approve')) {
+    return { status: 'error', message: 'No tienes permisos para cancelar pagos de contratistas.', payout: null };
+  }
+
+  const { data: current } = await supabase.from('contractor_payouts').select('*').eq('id', payoutId).maybeSingle();
+  const currentPayout = (current as ContractorPayoutRecord | null) ?? null;
+  if (!currentPayout) {
+    return { status: 'error', message: 'No encontramos el payout para cancelar.', payout: null };
+  }
+
+  if (!canCancelContractorPayout(currentPayout.status) || !canTransitionContractorPayoutStatus(currentPayout.status, 'cancelled')) {
+    return { status: 'error', message: 'Solo los payouts en draft o approved se pueden cancelar.', payout: null };
+  }
+
+  const { data, error } = await supabase
+    .from('contractor_payouts')
+    .update({
+      status: 'cancelled',
+      updated_by: session.user.id,
+    })
+    .eq('id', payoutId)
+    .select('*')
+    .maybeSingle();
+
+  if (error || !data) {
+    return { status: 'error', message: `No pudimos cancelar el payout (${error?.code ?? 'error-desconocido'}).`, payout: null };
+  }
+
+  // Intentionally omitted financial_change_logs for payouts in this phase:
+  // current entity_type union is focused on settings/quote_sheet/invoice/expense.
+
+  revalidatePath('/finanzas');
+  if (currentPayout.event_id) {
+    revalidatePath(`/eventos/${currentPayout.event_id}` as Route);
+  }
+
+  return { status: 'success', message: 'Pago de contratista cancelado.', payout: data as ContractorPayoutRecord };
+}
+
 export async function upsertFinancialExpenseAction(
   _previousState: FinancialExpenseActionState,
   formData: FormData,
@@ -436,6 +603,7 @@ export async function upsertFinancialExpenseAction(
   const expenseId = parseText(formData.get('expense_id'));
   const title = parseText(formData.get('title'));
   const category = parseText(formData.get('category'));
+  const categoryId = parseText(formData.get('category_id'));
   const amount = parseOptionalNumber(formData.get('amount'));
   const expenseDate = parseText(formData.get('expense_date'));
   const expenseScope = normalizeExpenseScope(formData.get('expense_scope'));
@@ -446,7 +614,28 @@ export async function upsertFinancialExpenseAction(
     return { status: 'error', message: 'El título del gasto es obligatorio.' };
   }
 
-  if (!category) {
+  let resolvedCategoryId: string | null = null;
+  let resolvedCategoryName: string | null = category;
+  if (categoryId) {
+    const { data: selectedCategory } = await supabase
+      .from('financial_expense_categories')
+      .select('id, name, active')
+      .eq('id', categoryId)
+      .maybeSingle();
+
+    const parsedCategory = (selectedCategory ?? null) as Pick<FinancialExpenseCategoryRecord, 'id' | 'name' | 'active'> | null;
+    if (!parsedCategory || !parsedCategory.active) {
+      return { status: 'error', message: 'La categoría seleccionada no existe o está inactiva.' };
+    }
+
+    resolvedCategoryId = parsedCategory.id;
+    resolvedCategoryName = resolveLegacyExpenseCategoryText({
+      legacyCategory: category,
+      selectedCategoryName: parsedCategory.name,
+    });
+  }
+
+  if (!resolvedCategoryName) {
     return { status: 'error', message: 'La categoría del gasto es obligatoria.' };
   }
 
@@ -465,7 +654,8 @@ export async function upsertFinancialExpenseAction(
   const payload = {
     title,
     description: parseText(formData.get('description')),
-    category,
+    category: resolvedCategoryName,
+    category_id: resolvedCategoryId,
     amount,
     currency: 'usd',
     expense_scope: expenseScope,
@@ -507,7 +697,8 @@ export async function upsertFinancialExpenseAction(
       eventId,
       amount,
       status: payload.status,
-      category,
+      category: resolvedCategoryName,
+      categoryId: resolvedCategoryId,
       expenseDate,
     },
     changed_by: session.user.id,

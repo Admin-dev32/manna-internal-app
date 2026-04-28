@@ -40,6 +40,14 @@ export function canEditContractorPayoutDraft(status: ContractorPayoutStatus) {
   return DRAFT_EDITABLE_STATUSES.includes(status);
 }
 
+export function canApproveContractorPayout(status: ContractorPayoutStatus) {
+  return canTransitionContractorPayoutStatus(status, 'approved');
+}
+
+export function canMarkContractorPayoutPaid(status: ContractorPayoutStatus) {
+  return canTransitionContractorPayoutStatus(status, 'paid');
+}
+
 export function canCancelContractorPayout(status: ContractorPayoutStatus) {
   return CANCELLABLE_STATUSES.includes(status);
 }
@@ -69,6 +77,35 @@ export function validateContractorPayoutDraftInput(input: ContractorPayoutDraftI
 
   if (input.source_expense_id) {
     return { ok: false as const, message: 'source_expense_id no está habilitado en esta fase.' };
+  }
+
+  if (input.payment_method && !isValidContractorPayoutPaymentMethod(input.payment_method)) {
+    return { ok: false as const, message: 'Método de pago inválido.' };
+  }
+
+  return { ok: true as const };
+}
+
+export function validateContractorPayoutPaidInput(input: {
+  payout_date?: string | null;
+  payment_method?: string | null;
+  external_reference?: string | null;
+}) {
+  if (input.payout_date !== undefined && input.payout_date !== null) {
+    const normalizedDate = input.payout_date.trim();
+    if (!normalizedDate) {
+      return { ok: false as const, message: 'La payout_date debe tener formato YYYY-MM-DD.' };
+    }
+
+    const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+    if (!isoDatePattern.test(normalizedDate)) {
+      return { ok: false as const, message: 'La payout_date debe tener formato YYYY-MM-DD.' };
+    }
+
+    const parsed = new Date(`${normalizedDate}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== normalizedDate) {
+      return { ok: false as const, message: 'La payout_date debe ser una fecha válida en formato YYYY-MM-DD.' };
+    }
   }
 
   if (input.payment_method && !isValidContractorPayoutPaymentMethod(input.payment_method)) {

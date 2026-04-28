@@ -21,7 +21,7 @@ export function EventProfitTable({ rows }: { rows: FinanceOverviewEventProfitRow
               <PaymentStatusBadge result={row.paymentStatus} />
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Expected: {formatMoney(row.expectedIncome)} · Paid: {formatMoney(row.knownPaid)} · Projected exp: {formatMoney(row.projectedExpenses)}
+              Expected: {formatMoney(row.expectedIncome)} · Known payment signal: {formatMoney(row.knownPaid)} · Projected exp: {formatMoney(row.projectedExpenses)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               Actual exp: {formatMoney(row.actualExpenses)} · Estimated profit: {formatMoney(row.estimatedProfit)}

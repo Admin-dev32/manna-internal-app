@@ -4,7 +4,7 @@ import { hasPermission } from '@/lib/auth/permissions';
 import { notFound } from 'next/navigation';
 import { getSessionContext } from '@/services/auth/session';
 import { getEventDetailPageData } from '@/services/events/queries';
-import { getFinancialExpensesByEventId } from '@/services/finance/queries';
+import { getContractorPayoutsByEventId, getFinancialExpensesByEventId } from '@/services/finance/queries';
 
 export default async function EventDetailPage({ params }: { params: Promise<{ eventId: string }> }) {
   await requirePermission('events.view');
@@ -61,8 +61,12 @@ export default async function EventDetailPage({ params }: { params: Promise<{ ev
     session.user &&
       (hasPermission(session.user, 'finance.expenses.view') || hasPermission(session.user, 'finance.expenses.manage') || hasPermission(session.user, 'finance.expenses.approve')),
   );
+  const canManageExpenses = Boolean(session.user && hasPermission(session.user, 'finance.expenses.manage'));
+  const canApproveExpenses = Boolean(session.user && hasPermission(session.user, 'finance.expenses.approve'));
 
-  const eventExpenses = canViewExpenses ? await getFinancialExpensesByEventId(event.id) : [];
+  const [eventExpenses, contractorPayouts] = canViewExpenses
+    ? await Promise.all([getFinancialExpensesByEventId(event.id), getContractorPayoutsByEventId(event.id)])
+    : [[], []];
 
   return (
     <EventDetail
@@ -100,7 +104,10 @@ export default async function EventDetailPage({ params }: { params: Promise<{ ev
       financeSummary={financeSummary}
       canViewFinance={canViewFinance}
       canViewExpenses={canViewExpenses}
+      canManageExpenses={canManageExpenses}
+      canApproveExpenses={canApproveExpenses}
       eventExpenses={eventExpenses}
+      contractorPayouts={contractorPayouts}
       calendarSync={calendarSync}
       handoffState={handoffState}
       operationalHubStatus={operationalHubStatus}

@@ -18,6 +18,8 @@ const PURPOSE_LABELS: Record<(typeof EMAIL_TEMPLATE_PURPOSES)[number], string> =
   quote_delivery: 'Entrega de cotización',
   quote_followup: 'Seguimiento de cotización',
   payment_reminder: 'Recordatorio de pago',
+  invoice_delivery: 'Entrega de invoice',
+  invoice_reminder: 'Recordatorio de invoice',
   event_confirmation: 'Confirmación de evento',
   general_client_message: 'Mensaje general al cliente',
 };

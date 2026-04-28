@@ -169,6 +169,7 @@ export async function getPreEventsOverviewPageData() {
   ]);
 
   const latestInvoiceByQuoteId = ((invoicesData ?? []) as InvoiceRecord[]).reduce<Record<string, InvoiceRecord | null>>((acc, invoice) => {
+    if (!invoice.quote_id) return acc;
     if (!acc[invoice.quote_id]) {
       acc[invoice.quote_id] = invoice;
     }

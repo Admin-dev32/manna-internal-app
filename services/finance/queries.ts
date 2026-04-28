@@ -1,4 +1,6 @@
 import { calculateFinancialSummary } from '@/lib/finance/calculations';
+import { resolveExpenseCategorySummaryLabel } from '@/lib/finance/expense-categories';
+import { buildFinanceExpenseEventSearchText } from '@/lib/finance/expense-event-search';
 import { getPaymentStatus, type PaymentStatusResult } from '@/lib/finance/payment-status';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { ClientRecord } from '@/types/clients';
@@ -6,7 +8,9 @@ import type { EventRecord, EventFinanceSnapshot } from '@/types/events';
 import type {
   ContractorPayoutRecord,
   EditableFinancialExpense,
+  FinanceExpenseEventSearchOption,
   FinancialSettingsExpenseRecord,
+  FinancialExpenseCategoryRecord,
   FinancialSettingsRecord,
   FinancialChangeLogRecord,
   QuoteFinancialExpenseRecord,
@@ -187,16 +191,116 @@ interface FinanceExpensesFilters {
   eventId?: string | 'all';
 }
 
+export async function searchFinanceExpenseEvents(query: string, limit = 60) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as FinanceExpenseEventSearchOption[];
+
+  const normalizedLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 120) : 60;
+  const eventsQuery = supabase
+    .from('events')
+    .select('id, client_id, source_pre_event_id, event_date, event_type, location, status')
+    .order('event_date', { ascending: false })
+    .limit(normalizedLimit);
+
+  const { data: eventsData } = await eventsQuery;
+  const events = (eventsData ?? []) as Array<Pick<EventRecord, 'id' | 'client_id' | 'source_pre_event_id' | 'event_date' | 'event_type' | 'location' | 'status'>>;
+  if (events.length === 0) return [] as FinanceExpenseEventSearchOption[];
+
+  const clientIds = [...new Set(events.map((event) => event.client_id).filter(Boolean))];
+  const preEventIds = [...new Set(events.map((event) => event.source_pre_event_id).filter(Boolean))];
+
+  const [{ data: clientsData }, { data: preEventsData }] = await Promise.all([
+    clientIds.length > 0 ? supabase.from('clients').select('id, full_name, email').in('id', clientIds) : Promise.resolve({ data: [] }),
+    preEventIds.length > 0 ? supabase.from('pre_events').select('id, status').in('id', preEventIds) : Promise.resolve({ data: [] }),
+  ]);
+
+  const clientById = Object.fromEntries(((clientsData ?? []) as Array<Pick<ClientRecord, 'id' | 'full_name' | 'email'>>).map((client) => [client.id, client]));
+  const preEventById = Object.fromEntries(((preEventsData ?? []) as Array<Pick<PreEventRecord, 'id' | 'status'>>).map((preEvent) => [preEvent.id, preEvent]));
+
+  const mapped = events.map((event) => {
+    const client = clientById[event.client_id];
+    const preEvent = event.source_pre_event_id ? preEventById[event.source_pre_event_id] : null;
+    const shortEventId = event.id.slice(0, 8);
+    const shortPreEventId = event.source_pre_event_id ? event.source_pre_event_id.slice(0, 8) : null;
+    const labelParts = [
+      event.event_type ?? 'Evento',
+      event.event_date ?? 'sin fecha',
+      client?.full_name ?? 'cliente no ligado',
+      `#${shortEventId}`,
+      shortPreEventId ? `reserva #${shortPreEventId}` : null,
+    ].filter(Boolean);
+
+    return {
+      event_id: event.id,
+      event_date: event.event_date ?? null,
+      event_type: event.event_type ?? null,
+      location: event.location ?? null,
+      client_name: client?.full_name ?? null,
+      client_email: client?.email ?? null,
+      pre_event_id: event.source_pre_event_id ?? null,
+      pre_event_status: preEvent?.status ?? null,
+      event_status: event.status ?? null,
+      label: labelParts.join(' · '),
+      search_text: buildFinanceExpenseEventSearchText([
+        event.id,
+        event.event_type,
+        event.event_date,
+        event.location,
+        client?.full_name,
+        client?.email,
+        event.source_pre_event_id,
+        preEvent?.status,
+        event.status,
+      ]),
+    } satisfies FinanceExpenseEventSearchOption;
+  });
+
+  const normalizedQuery = buildFinanceExpenseEventSearchText([query]);
+  if (!normalizedQuery) return mapped;
+  return mapped.filter((option) => option.search_text.includes(normalizedQuery));
+}
+
+export async function getFinancialExpenseCategories() {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as FinancialExpenseCategoryRecord[];
+
+  const { data } = await supabase
+    .from('financial_expense_categories')
+    .select('*')
+    .eq('active', true)
+    .order('sort_order', { ascending: true })
+    .order('name', { ascending: true });
+
+  return (data ?? []) as FinancialExpenseCategoryRecord[];
+}
+
 export async function getFinancialExpenses(filters: FinanceExpensesFilters = {}) {
   const supabase = await createSupabaseServerClient();
   if (!supabase) {
     return {
       expenses: [] as FinancialExpenseRecord[],
       eventOptions: [] as Array<{ id: string; label: string }>,
+      eventSearchOptions: [] as FinanceExpenseEventSearchOption[],
+      categories: [] as FinancialExpenseCategoryRecord[],
     };
   }
 
-  let query = supabase.from('financial_expenses').select('*').order('expense_date', { ascending: false }).order('created_at', { ascending: false }).limit(120);
+  let query = supabase
+    .from('financial_expenses')
+    .select(`
+      *,
+      category_ref:financial_expense_categories!financial_expenses_category_id_fkey(
+        id,
+        name,
+        slug,
+        report_group,
+        tax_sensitive,
+        requires_receipt
+      )
+    `)
+    .order('expense_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(120);
 
   if (filters.status && filters.status !== 'all') {
     query = query.eq('status', filters.status);
@@ -211,7 +315,14 @@ export async function getFinancialExpenses(filters: FinanceExpensesFilters = {})
   }
 
   const { data } = await query;
-  const expenses = (data ?? []) as FinancialExpenseRecord[];
+  const expenses = ((data ?? []) as Array<FinancialExpenseRecord & { category_ref?: Partial<FinancialExpenseCategoryRecord> | null }>).map((expense) => ({
+    ...expense,
+    category_name: expense.category_ref?.name ?? null,
+    category_slug: expense.category_ref?.slug ?? null,
+    category_report_group: expense.category_ref?.report_group ?? null,
+    category_tax_sensitive: expense.category_ref?.tax_sensitive ?? null,
+    category_requires_receipt: expense.category_ref?.requires_receipt ?? null,
+  }));
   const expensesWithSignedReceipts = await Promise.all(
     expenses.map(async (expense) => {
       if (!expense.receipt_storage_bucket || !expense.receipt_storage_path) return expense;
@@ -223,9 +334,15 @@ export async function getFinancialExpenses(filters: FinanceExpensesFilters = {})
     }),
   );
 
+  const categories = await getFinancialExpenseCategories();
   const eventIds = [...new Set(expensesWithSignedReceipts.map((expense) => expense.event_id).filter(Boolean))] as string[];
   if (eventIds.length === 0) {
-    return { expenses: expensesWithSignedReceipts, eventOptions: [] as Array<{ id: string; label: string }> };
+    return {
+      expenses: expensesWithSignedReceipts,
+      eventOptions: [] as Array<{ id: string; label: string }>,
+      eventSearchOptions: await searchFinanceExpenseEvents('', 80),
+      categories,
+    };
   }
 
   const { data: eventsData } = await supabase.from('events').select('id, event_type, event_date').in('id', eventIds);
@@ -234,7 +351,12 @@ export async function getFinancialExpenses(filters: FinanceExpensesFilters = {})
     label: `${event.event_type ?? 'Evento'} · ${event.event_date ?? 'sin fecha'} · #${String(event.id).slice(0, 8)}`,
   }));
 
-  return { expenses: expensesWithSignedReceipts, eventOptions };
+  return {
+    expenses: expensesWithSignedReceipts,
+    eventOptions,
+    eventSearchOptions: await searchFinanceExpenseEvents('', 80),
+    categories,
+  };
 }
 
 export async function getFinancialExpensesByEventId(eventId: string) {
@@ -444,12 +566,23 @@ export async function getFinanceOverviewData(): Promise<FinanceOverviewData> {
   const paymentLinks = (paymentLinksRes.data ?? []) as PaymentLinkRecord[];
   const quoteExpenses = (quoteExpensesRes.data ?? []) as QuoteFinancialExpenseRecord[];
   const actualApprovedExpenses = (actualExpensesRes.data ?? []) as FinancialExpenseRecord[];
+  const controlledCategoryIds = [...new Set(actualApprovedExpenses.map((expense) => expense.category_id).filter(Boolean))] as string[];
+  const controlledCategoriesRes = controlledCategoryIds.length > 0
+    ? await supabase
+        .from('financial_expense_categories')
+        .select('id, name')
+        .in('id', controlledCategoryIds)
+    : { data: [] };
+  const controlledCategoryNameById = Object.fromEntries(
+    (((controlledCategoriesRes.data ?? []) as Array<Pick<FinancialExpenseCategoryRecord, 'id' | 'name'>>).map((category) => [category.id, category.name])),
+  ) as Record<string, string>;
 
   const quoteById = Object.fromEntries(quotes.map((quote) => [quote.id, quote])) as Record<string, (typeof quotes)[number]>;
   const preEventById = Object.fromEntries(preEvents.map((preEvent) => [preEvent.id, preEvent])) as Record<string, PreEventRecord>;
   const clientById = Object.fromEntries(clients.map((client) => [client.id, client])) as Record<string, ClientRecord>;
 
   const latestInvoiceByQuoteId = invoices.reduce<Record<string, InvoiceRecord | null>>((acc, invoice) => {
+    if (!invoice.quote_id) return acc;
     if (!acc[invoice.quote_id]) acc[invoice.quote_id] = invoice;
     return acc;
   }, {});
@@ -493,7 +626,12 @@ export async function getFinanceOverviewData(): Promise<FinanceOverviewData> {
 
   const expenseSummaryByCategory = Object.entries(
     actualApprovedExpenses.reduce<Record<string, number>>((acc, expense) => {
-      acc[expense.category] = (acc[expense.category] ?? 0) + asNumber(expense.amount);
+      const key = resolveExpenseCategorySummaryLabel({
+        categoryId: expense.category_id,
+        controlledCategoryName: expense.category_id ? controlledCategoryNameById[expense.category_id] ?? null : null,
+        legacyCategory: expense.category,
+      });
+      acc[key] = (acc[key] ?? 0) + asNumber(expense.amount);
       return acc;
     }, {}),
   ).map(([category, totalApprovedAmount]) => ({ category, totalApprovedAmount }));
