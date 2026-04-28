@@ -21,6 +21,10 @@ import type {
   OperationalTemplateTaskItemRecord,
 } from '@/types/operational-templates';
 
+type ExistingChecklistRow = { item_key: string | null; label: string | null };
+type ExistingTaskRow = { title: string | null };
+type ExistingMaterialRow = { note?: string | null };
+
 function normalizeOptionalString(value: FormDataEntryValue | null) {
   const normalized = String(value ?? '').trim();
   return normalized || null;
@@ -551,10 +555,10 @@ export async function applyOperationalTemplateToEventAction(eventId: string, tem
     supabase.from('event_inventory_requirements').select('id, inventory_item_id').eq('event_id', eventId),
   ]);
 
-  const existingChecklistKeys = new Set((existingChecklistData ?? []).map((item: any) => String(item.item_key ?? '')));
-  const existingChecklistLabels = new Set((existingChecklistData ?? []).map((item: any) => normalizeKey(String(item.label ?? ''))));
-  const existingTaskTitles = new Set((existingTaskData ?? []).map((item: any) => normalizeKey(String(item.title ?? ''))));
-  const existingMaterialNotes = new Set((existingMaterialData ?? []).map((item: any) => normalizeKey(String(item.note ?? ''))));
+  const existingChecklistKeys = new Set((existingChecklistData ?? []).map((item) => String((item as ExistingChecklistRow).item_key ?? '')));
+  const existingChecklistLabels = new Set((existingChecklistData ?? []).map((item) => normalizeKey(String((item as ExistingChecklistRow).label ?? ''))));
+  const existingTaskTitles = new Set((existingTaskData ?? []).map((item) => normalizeKey(String((item as ExistingTaskRow).title ?? ''))));
+  const existingMaterialNotes = new Set((existingMaterialData ?? []).map((item) => normalizeKey(String((item as ExistingMaterialRow).note ?? ''))));
 
   const checklistPayload = checklistItems
     .filter((item) => !existingChecklistKeys.has(`template:${item.id}`) && !existingChecklistLabels.has(normalizeKey(item.label)))
