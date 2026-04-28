@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { LeadProfileOption } from '@/types/leads';
 import type { ClientRecord } from '@/types/clients';
+import type { ManualInvoiceClientOption } from '@/types/invoices';
 import type { PreEventRecord } from '@/types/pre-events';
 
 async function getProfilesMap(ids: string[]) {
@@ -68,4 +69,39 @@ export async function getClientsOverviewPageData() {
     clients,
     preEventsByClientId: Object.fromEntries(((preEvents ?? []) as PreEventRecord[]).map((preEvent) => [preEvent.client_id, preEvent])),
   };
+}
+
+function normalizeClientSearchQuery(value: string) {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function buildManualInvoiceClientOption(client: Pick<ClientRecord, 'id' | 'full_name' | 'email' | 'phone'>): ManualInvoiceClientOption {
+  const parts = [client.full_name, client.email ?? null, client.phone ?? null].filter(Boolean);
+  return {
+    id: client.id,
+    name: client.full_name,
+    email: client.email ?? null,
+    phone: client.phone ?? null,
+    label: parts.join(' · '),
+    searchText: `${client.full_name} ${client.email ?? ''} ${client.phone ?? ''}`.toLowerCase(),
+  };
+}
+
+export async function searchManualInvoiceClients(query: string, limit = 40) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as ManualInvoiceClientOption[];
+
+  const normalizedQuery = normalizeClientSearchQuery(query);
+  const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 40;
+
+  let clientsQuery = supabase.from('clients').select('id, full_name, email, phone').order('created_at', { ascending: false }).limit(safeLimit);
+  if (normalizedQuery) {
+    const escapedQuery = normalizedQuery.replace(/[%_]/g, '');
+    const pattern = `%${escapedQuery}%`;
+    clientsQuery = clientsQuery.or(`full_name.ilike.${pattern},email.ilike.${pattern},phone.ilike.${pattern}`);
+  }
+
+  const { data } = await clientsQuery;
+  const clients = (data ?? []) as Array<Pick<ClientRecord, 'id' | 'full_name' | 'email' | 'phone'>>;
+  return clients.map(buildManualInvoiceClientOption);
 }

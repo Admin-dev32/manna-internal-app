@@ -8,6 +8,7 @@ import { RecurringTaskRulesSection } from '@/components/tasks/recurring-task-rul
 import { EventInventorySection } from '@/components/inventory/event-inventory-section';
 import { EventExpensesCard } from '@/components/finance/event-expenses-card';
 import { FinancialSummaryCard } from '@/components/finance/financial-summary-card';
+import { EventContractorPayoutsPanel } from '@/components/finance/event-contractor-payouts-panel';
 import { EventTemplateSection } from '@/components/templates/event-template-section';
 import { EventCalendarSyncCard } from '@/components/events/event-calendar-sync-card';
 import { RecordTimelineSection } from '@/components/communication/record-timeline-section';
@@ -48,6 +49,7 @@ import type {
   EventTaskRecord,
 } from '@/types/events';
 import type { RecurringTaskRuleRecord } from '@/types/recurring-tasks';
+import type { ContractorPayoutReadModel } from '@/services/finance/queries';
 import type { FinancialExpenseRecord } from '@/types/finance';
 import type {
   BarMasterTemplateApplicationRecord,
@@ -125,7 +127,10 @@ export function EventDetail({
   financeSummary,
   canViewFinance,
   canViewExpenses,
+  canManageExpenses,
+  canApproveExpenses,
   eventExpenses,
+  contractorPayouts,
   calendarSync,
   handoffState,
   operationalHubStatus,
@@ -180,7 +185,10 @@ export function EventDetail({
   financeSummary: EventFinanceSnapshot | null;
   canViewFinance: boolean;
   canViewExpenses: boolean;
+  canManageExpenses: boolean;
+  canApproveExpenses: boolean;
   eventExpenses: FinancialExpenseRecord[];
+  contractorPayouts: ContractorPayoutReadModel[];
   calendarSync: EventCalendarSyncRecord | null;
   handoffState: EventOperationalHandoffStateRecord | null;
   operationalHubStatus: EventOperationalHubStatus;
@@ -817,6 +825,16 @@ export function EventDetail({
       ) : null}
 
       {canViewExpenses ? <EventExpensesCard expenses={eventExpenses} /> : null}
+      {canViewExpenses ? (
+        <EventContractorPayoutsPanel
+          eventId={event.id}
+          assignments={assignments}
+          profiles={profiles}
+          payouts={contractorPayouts}
+          canManagePayouts={canManageExpenses}
+          canApprovePayouts={canApproveExpenses}
+        />
+      ) : null}
     </div>
   );
 }

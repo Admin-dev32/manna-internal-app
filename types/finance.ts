@@ -127,6 +127,12 @@ export interface FinancialExpenseRecord {
   title: string;
   description: string | null;
   category: string;
+  category_id: string | null;
+  category_name?: string | null;
+  category_slug?: string | null;
+  category_report_group?: string | null;
+  category_tax_sensitive?: boolean | null;
+  category_requires_receipt?: boolean | null;
   expense_scope: FinancialExpenseScope;
   status: FinancialExpenseStatus;
   amount: number | string;
@@ -149,6 +155,36 @@ export interface FinancialExpenseRecord {
   updated_by: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface FinancialExpenseCategoryRecord {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  irs_category: string | null;
+  tax_sensitive: boolean;
+  deductible_default: boolean;
+  requires_receipt: boolean;
+  report_group: string | null;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinanceExpenseEventSearchOption {
+  event_id: string;
+  event_date: string | null;
+  event_type: string | null;
+  location: string | null;
+  client_name: string | null;
+  client_email: string | null;
+  pre_event_id: string | null;
+  pre_event_status: string | null;
+  event_status: string | null;
+  label: string;
+  search_text: string;
 }
 
 export interface ContractorPayoutRecord {

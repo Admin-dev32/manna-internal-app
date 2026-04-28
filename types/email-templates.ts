@@ -4,6 +4,8 @@ export const EMAIL_TEMPLATE_PURPOSES = [
   'quote_delivery',
   'quote_followup',
   'payment_reminder',
+  'invoice_delivery',
+  'invoice_reminder',
   'event_confirmation',
   'general_client_message',
 ] as const;

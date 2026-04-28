@@ -15,7 +15,8 @@ import {
   upsertFinancialExpenseAction,
 } from '@/services/finance/actions';
 import { initialFinancialExpenseActionState } from '@/services/finance/expenses-form-state';
-import type { FinancialExpenseRecord } from '@/types/finance';
+import { matchesFinanceExpenseEventSearch } from '@/lib/finance/expense-event-search';
+import type { FinanceExpenseEventSearchOption, FinancialExpenseCategoryRecord, FinancialExpenseRecord } from '@/types/finance';
 
 function formatCurrency(value: number | string) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value));
@@ -50,12 +51,16 @@ function getReceiptUploadedAt(expense: FinancialExpenseRecord) {
 export function ExpensesModule({
   expenses,
   eventOptions,
+  eventSearchOptions,
+  categories,
   canView,
   canManage,
   canApprove,
 }: {
   expenses: FinancialExpenseRecord[];
   eventOptions: Array<{ id: string; label: string }>;
+  eventSearchOptions: FinanceExpenseEventSearchOption[];
+  categories: FinancialExpenseCategoryRecord[];
   canView: boolean;
   canManage: boolean;
   canApprove: boolean;
@@ -64,6 +69,11 @@ export function ExpensesModule({
   const [statusFilter, setStatusFilter] = useState<'all' | FinancialExpenseRecord['status']>('all');
   const [scopeFilter, setScopeFilter] = useState<'all' | FinancialExpenseRecord['expense_scope']>('all');
   const [eventFilter, setEventFilter] = useState<string>('all');
+  const [expenseScope, setExpenseScope] = useState<FinancialExpenseRecord['expense_scope']>('general');
+  const [eventSearchQuery, setEventSearchQuery] = useState('');
+  const [selectedEventId, setSelectedEventId] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState('');
+  const [legacyCategoryText, setLegacyCategoryText] = useState('');
 
   const filteredExpenses = useMemo(
     () =>
@@ -77,6 +87,30 @@ export function ExpensesModule({
   );
 
   const eventLabelMap = useMemo(() => Object.fromEntries(eventOptions.map((event) => [event.id, event.label])), [eventOptions]);
+  const selectedSearchEvent = useMemo(
+    () => eventSearchOptions.find((event) => event.event_id === selectedEventId) ?? null,
+    [eventSearchOptions, selectedEventId],
+  );
+  const filteredEventSearchOptions = useMemo(() => {
+    const source = expenseScope === 'event' ? eventSearchOptions : [];
+    const result = source.filter((event) => matchesFinanceExpenseEventSearch(event.search_text, eventSearchQuery));
+    return result.slice(0, 8);
+  }, [eventSearchOptions, eventSearchQuery, expenseScope]);
+  const categoryById = useMemo(() => Object.fromEntries(categories.map((category) => [category.id, category])), [categories]);
+  const selectedCategory = selectedCategoryId ? categoryById[selectedCategoryId] ?? null : null;
+
+  function handleScopeChange(value: FinancialExpenseRecord['expense_scope']) {
+    setExpenseScope(value);
+    if (value === 'general') {
+      setSelectedEventId('');
+      setEventSearchQuery('');
+    }
+  }
+
+  function selectEvent(event: FinanceExpenseEventSearchOption) {
+    setSelectedEventId(event.event_id);
+    setEventSearchQuery(event.label);
+  }
 
   return (
     <Card>
@@ -103,13 +137,52 @@ export function ExpensesModule({
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Categoría
+                <select
+                  name="category_id"
+                  value={selectedCategoryId}
+                  onChange={(event) => {
+                    const nextCategoryId = event.target.value;
+                    setSelectedCategoryId(nextCategoryId);
+                    const nextCategory = nextCategoryId ? categoryById[nextCategoryId] : null;
+                    if (nextCategory && !legacyCategoryText.trim()) {
+                      setLegacyCategoryText(nextCategory.name);
+                    }
+                  }}
+                  className="h-11 rounded-2xl border border-input bg-background px-4 text-sm"
+                >
+                  <option value="">Legacy / custom category (text)</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium">
+                Categoría (legacy text fallback)
                 <input
                   name="category"
                   required
+                  value={legacyCategoryText}
+                  onChange={(event) => setLegacyCategoryText(event.target.value)}
                   placeholder="Insumos, transporte, staff..."
                   className="h-11 rounded-2xl border border-input bg-background px-4 text-sm"
                 />
               </label>
+              {selectedCategory ? (
+                <div className="md:col-span-2 rounded-2xl border border-border bg-background p-3 text-xs text-muted-foreground">
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {selectedCategory.report_group ? <Badge variant="secondary">{selectedCategory.report_group}</Badge> : null}
+                    {selectedCategory.tax_sensitive ? <Badge variant="outline">Tax sensitive</Badge> : null}
+                    {selectedCategory.requires_receipt ? <Badge variant="outline">Receipt recommended</Badge> : null}
+                  </div>
+                  {selectedCategory.requires_receipt ? (
+                    <p>This category usually requires a receipt. You can still submit now and upload receipt later.</p>
+                  ) : (
+                    <p>Selected controlled category will be used for reporting; legacy text is kept for compatibility.</p>
+                  )}
+                </div>
+              ) : null}
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Monto
                 <input name="amount" type="number" min="0" step="0.01" required className="h-11 rounded-2xl border border-input bg-background px-4 text-sm" />
@@ -120,22 +193,81 @@ export function ExpensesModule({
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Alcance
-                <select name="expense_scope" defaultValue="general" className="h-11 rounded-2xl border border-input bg-background px-4 text-sm">
+                <select
+                  name="expense_scope"
+                  value={expenseScope}
+                  onChange={(event) => handleScopeChange(event.target.value as FinancialExpenseRecord['expense_scope'])}
+                  className="h-11 rounded-2xl border border-input bg-background px-4 text-sm"
+                >
                   <option value="general">General operativo</option>
                   <option value="event">Ligado a evento</option>
                 </select>
               </label>
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                Evento (si aplica)
-                <select name="event_id" defaultValue="" className="h-11 rounded-2xl border border-input bg-background px-4 text-sm">
-                  <option value="">Sin evento</option>
-                  {eventOptions.map((event) => (
-                    <option key={event.id} value={event.id}>
-                      {event.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="flex flex-col gap-2 text-sm font-medium">
+                <span>Link to Event</span>
+                <input type="hidden" name="event_id" value={expenseScope === 'event' ? selectedEventId : ''} />
+                {expenseScope === 'event' ? (
+                  <div className="space-y-2 rounded-2xl border border-border bg-background p-3">
+                    <input
+                      value={eventSearchQuery}
+                      onChange={(event) => setEventSearchQuery(event.target.value)}
+                      placeholder="Search by client, date, event type, or event ID"
+                      className="h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm"
+                    />
+                    {selectedSearchEvent ? (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                        <p className="font-medium">Selected event</p>
+                        <p>
+                          {selectedSearchEvent.client_name ?? 'Cliente no ligado'} · {selectedSearchEvent.event_date ?? 'sin fecha'} ·{' '}
+                          {selectedSearchEvent.event_type ?? 'Evento'} · #{selectedSearchEvent.event_id.slice(0, 8)}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedEventId('');
+                            setEventSearchQuery('');
+                          }}
+                          className="mt-1 text-xs underline"
+                        >
+                          Clear selection
+                        </button>
+                      </div>
+                    ) : null}
+                    {filteredEventSearchOptions.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No matching events found. Refine your query or select from the list below.</p>
+                    ) : (
+                      <div className="max-h-48 space-y-1 overflow-auto">
+                        {filteredEventSearchOptions.map((event) => (
+                          <button
+                            key={event.event_id}
+                            type="button"
+                            onClick={() => selectEvent(event)}
+                            className="w-full rounded-xl border border-border px-3 py-2 text-left text-xs hover:bg-muted/40"
+                          >
+                            {event.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <select
+                      value={selectedEventId}
+                      onChange={(event) => setSelectedEventId(event.target.value)}
+                      className="h-10 w-full rounded-xl border border-input bg-background px-3 text-xs"
+                    >
+                      <option value="">Fallback: select event manually</option>
+                      {eventOptions.map((event) => (
+                        <option key={event.id} value={event.id}>
+                          {event.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                    Select scope “Ligado a evento” to search and link an event.
+                  </div>
+                )}
+              </div>
               <label className="flex flex-col gap-2 text-sm font-medium md:col-span-2">
                 Proveedor / Payee
                 <input name="vendor_name" placeholder="Proveedor o persona pagada" className="h-11 rounded-2xl border border-input bg-background px-4 text-sm" />

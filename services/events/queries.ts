@@ -485,6 +485,7 @@ export async function getEventsOverviewPageData(filters?: { status?: string; fro
   ) as Record<string, EventChecklistProgress>;
 
   const latestInvoiceByQuoteId = ((invoicesData ?? []) as InvoiceRecord[]).reduce<Record<string, InvoiceRecord | null>>((acc, invoice) => {
+    if (!invoice.quote_id) return acc;
     if (!acc[invoice.quote_id]) {
       acc[invoice.quote_id] = invoice;
     }
