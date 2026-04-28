@@ -121,10 +121,28 @@ export function ExpensesModule({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-border bg-background p-3 text-xs text-muted-foreground">
+            <p className="font-semibold text-foreground">Category & tax context</p>
+            <p className="mt-1">Categories help reporting and tax-prep support, but they do not determine final tax deductibility.</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-3 text-xs text-muted-foreground">
+            <p className="font-semibold text-foreground">Receipts context</p>
+            <p className="mt-1">Receipts support recordkeeping and review, but do not automatically make an expense deductible.</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-3 text-xs text-muted-foreground">
+            <p className="font-semibold text-foreground">Event-linked context</p>
+            <p className="mt-1">Event-linked expenses are used for profitability tracking and operational analysis.</p>
+          </div>
+        </div>
         <AuthFeedback state={state} />
 
         {canManage ? (
           <form action={formAction} className="space-y-4 rounded-2xl border border-border bg-muted/20 p-4">
+            <div className="rounded-xl border border-border bg-background p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Expense Details</p>
+              <p className="mt-1 text-xs text-muted-foreground">Capture core expense fields first, then add category, event link, receipt, and notes.</p>
+            </div>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Título
@@ -157,6 +175,11 @@ export function ExpensesModule({
                     </option>
                   ))}
                 </select>
+                {categories.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No controlled categories available. Use legacy/custom category text for now.</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Controlled category improves reporting consistency; legacy text is kept for compatibility.</p>
+                )}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Categoría (legacy text fallback)
@@ -171,6 +194,7 @@ export function ExpensesModule({
               </label>
               {selectedCategory ? (
                 <div className="md:col-span-2 rounded-2xl border border-border bg-background p-3 text-xs text-muted-foreground">
+                  <p className="mb-2 font-semibold text-foreground">Category & Tax Context</p>
                   <div className="mb-2 flex flex-wrap gap-2">
                     {selectedCategory.report_group ? <Badge variant="secondary">{selectedCategory.report_group}</Badge> : null}
                     {selectedCategory.tax_sensitive ? <Badge variant="outline">Tax sensitive</Badge> : null}
@@ -205,6 +229,7 @@ export function ExpensesModule({
               </label>
               <div className="flex flex-col gap-2 text-sm font-medium">
                 <span>Link to Event</span>
+                <p className="text-xs font-normal text-muted-foreground">Search by client, date, event type, or event ID to tie this expense to profitability tracking.</p>
                 <input type="hidden" name="event_id" value={expenseScope === 'event' ? selectedEventId : ''} />
                 {expenseScope === 'event' ? (
                   <div className="space-y-2 rounded-2xl border border-border bg-background p-3">
@@ -264,7 +289,7 @@ export function ExpensesModule({
                   </div>
                 ) : (
                   <div className="rounded-xl border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-                    Select scope “Ligado a evento” to search and link an event.
+                    No event selected. Select scope “Ligado a evento” to search and link an event.
                   </div>
                 )}
               </div>
@@ -283,6 +308,10 @@ export function ExpensesModule({
             </div>
 
             <div className="grid gap-3 md:grid-cols-3">
+              <div className="md:col-span-3 rounded-xl border border-border bg-background p-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Receipt</p>
+                <p className="mt-1 text-xs text-muted-foreground">Receipt metadata improves audit trail and approval context.</p>
+              </div>
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Receipt file name (preparación)
                 <input name="receipt_file_name" placeholder="ticket-123.jpg" className="h-11 rounded-2xl border border-input bg-background px-4 text-sm" />
@@ -311,6 +340,10 @@ export function ExpensesModule({
 
         {canView ? (
           <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-background p-3 text-xs text-muted-foreground">
+              <p className="font-semibold text-foreground">Status / Approval</p>
+              <p className="mt-1">Use status filters to review draft, submitted, approved, and rejected expenses and the corresponding approval actions.</p>
+            </div>
             <div className="grid gap-3 md:grid-cols-3">
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Filtro estado
@@ -344,7 +377,9 @@ export function ExpensesModule({
             </div>
 
             {filteredExpenses.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">No hay gastos para los filtros seleccionados.</div>
+              <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                No expenses match the selected filters. Adjust status/scope/event filters or create a new draft expense.
+              </div>
             ) : (
               <div className="space-y-3">
                 {filteredExpenses.map((expense) => (
