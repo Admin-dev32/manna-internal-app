@@ -92,7 +92,9 @@ body.dark {
   }
 
   .glass-panel {
-    @apply rounded-3xl border border-white/70 bg-white/90 shadow-panel backdrop-blur;
+    @apply rounded-3xl border shadow-panel backdrop-blur;
+    border-color: hsl(var(--border) / 0.72);
+    background-color: hsl(var(--card) / 0.9);
   }
 
   .module-page {

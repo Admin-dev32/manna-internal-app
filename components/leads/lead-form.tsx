@@ -192,7 +192,7 @@ export function LeadForm({ action, profiles, lead, submitLabel }: LeadFormProps)
               <select
                 name="responsible_profile_id"
                 defaultValue={lead?.responsible_profile_id ?? ''}
-                className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="">Sin asignar</option>
                 {profiles.map((profile) => (
@@ -373,7 +373,7 @@ function SelectField({
       defaultValue={defaultValue}
       value={value}
       onChange={onValueChange ? (event) => onValueChange(event.target.value) : undefined}
-      className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {placeholder ? <option value="">{placeholder}</option> : null}
       {options.map((option) => (
@@ -417,7 +417,7 @@ function CustomValueField({
           name={`${name}_option`}
           value={selection}
           onChange={(event) => onSelectionChange(event.target.value)}
-          className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <option value="">{placeholder}</option>
           {options.map((option) => (

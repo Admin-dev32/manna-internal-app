@@ -32,7 +32,7 @@ export function Sidebar({ collapsed, onToggleCollapse, user }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'hidden h-screen min-h-0 shrink-0 border-r border-border/80 bg-white/88 backdrop-blur transition-[width,padding] duration-200 lg:sticky lg:top-0 lg:flex lg:flex-col',
+        'hidden h-screen min-h-0 shrink-0 border-r border-border/80 bg-card/88 backdrop-blur transition-[width,padding] duration-200 lg:sticky lg:top-0 lg:flex lg:flex-col',
         collapsed ? 'w-24 px-3 py-4' : 'w-80 px-4 py-5',
       )}
     >
