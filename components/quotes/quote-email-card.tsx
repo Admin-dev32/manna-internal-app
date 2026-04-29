@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useState, useTransition } from 'react';
 import { Copy, Mail, Send } from 'lucide-react';
 
 import { AuthFeedback } from '@/components/auth/auth-feedback';
@@ -73,6 +73,7 @@ export function QuoteEmailCard({
   const [reminderState, reminderFormAction] = useActionState(paymentReminderAction, initialQuoteEmailFormState);
   const [manualState, manualFormAction] = useActionState(manualDeliveryAction, initialQuoteManualDeliveryFormState);
   const [manualChannel, setManualChannel] = useState<'whatsapp' | 'sms' | 'manual_link'>('whatsapp');
+  const [, startTransition] = useTransition();
 
   async function handleCopy(url: string) {
     try {
@@ -83,7 +84,9 @@ export function QuoteEmailCard({
       formData.set('payment_link_id', preview.paymentLinkId ?? '');
       formData.set('link_url', url);
       formData.set('amount_to_charge', String(preview.paymentAmountValue));
-      await manualFormAction(formData);
+      startTransition(() => {
+        manualFormAction(formData);
+      });
     } catch {
       // Clipboard might be blocked by browser permissions.
     }

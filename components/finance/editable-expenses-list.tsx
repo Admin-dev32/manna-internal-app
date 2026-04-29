@@ -73,7 +73,7 @@ export function EditableExpensesList({
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Tipo</label>
               <select
-                className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 value={expense.expense_type}
                 disabled={disabled}
                 onChange={(event) =>
@@ -115,7 +115,7 @@ export function EditableExpensesList({
             <div className="mt-4 space-y-2">
               <label className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Base de cálculo</label>
               <select
-                className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 value={expense.calculation_base ?? 'gross_revenue'}
                 disabled={disabled}
                 onChange={(event) => updateExpense(index, { ...expense, calculation_base: event.target.value as EditableFinancialExpense['calculation_base'] })}

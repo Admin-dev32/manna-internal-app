@@ -17,6 +17,8 @@ import {
   validateContractorPayoutPaidInput,
 } from '@/lib/finance/contractor-payouts';
 import { resolveLegacyExpenseCategoryText } from '@/lib/finance/expense-categories';
+import { validateDraftJournalForPosting } from '@/lib/finance/journal-posting';
+import { validatePostingPreviewForDraftCreation, type PostingPreview } from '@/lib/finance/posting-previews';
 import { buildFinanceReceiptStoragePath, financeReceiptUploadConfig, validateReceiptFile } from '@/lib/finance/receipt-upload';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { FinancialExpenseActionState } from '@/services/finance/expenses-form-state';
@@ -260,6 +262,159 @@ interface MarkContractorPayoutPaidInput {
   payout_date?: string | null;
   payment_method?: string | null;
   external_reference?: string | null;
+}
+
+export interface CreateDraftJournalEntryFromPreviewResult {
+  status: 'success' | 'error';
+  message: string;
+  journalEntryId: string | null;
+}
+
+export interface PostDraftJournalEntryResult {
+  status: 'success' | 'error';
+  message: string;
+  journalEntryId: string | null;
+}
+
+export async function createDraftJournalEntryFromPreviewAction(preview: PostingPreview): Promise<CreateDraftJournalEntryFromPreviewResult> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.', journalEntryId: null };
+  }
+
+  const rawPermissions = new Set<string>((session.user.permissions ?? []) as unknown as string[]);
+  const canManageLedger =
+    rawPermissions.has('finance.ledger.post')
+    || rawPermissions.has('finance.accounts.manage')
+    || hasPermission(session.user, 'finance.expenses.manage');
+
+  if (!canManageLedger) {
+    return { status: 'error', message: 'No tienes permisos para crear asientos contables en borrador.', journalEntryId: null };
+  }
+
+  const validation = validatePostingPreviewForDraftCreation(preview);
+  if (!validation.ok) {
+    return { status: 'error', message: validation.errors.join(' '), journalEntryId: null };
+  }
+
+  const entryDescription = String(preview.description ?? '').trim() || null;
+
+  const { data: entryData, error: entryError } = await supabase
+    .from('journal_entries')
+    .insert({
+      entry_date: preview.entryDate,
+      source_type: preview.sourceType,
+      source_id: preview.sourceId,
+      description: entryDescription,
+      status: 'draft',
+      created_by: session.user.id,
+    })
+    .select('id')
+    .single();
+
+  if (entryError || !entryData?.id) {
+    return { status: 'error', message: entryError?.message ?? 'No se pudo crear el journal entry draft.', journalEntryId: null };
+  }
+
+  const entryId = String(entryData.id);
+  const linesPayload = preview.lines.map((line) => ({
+    journal_entry_id: entryId,
+    account_id: String(line.accountId),
+    debit: line.debit,
+    credit: line.credit,
+    memo: line.memo ?? null,
+    entity_type: line.entityType ?? null,
+    entity_id: line.entityId ?? null,
+  }));
+
+  const { error: linesError } = await supabase.from('journal_entry_lines').insert(linesPayload);
+
+  if (linesError) {
+    await supabase.from('journal_entries').delete().eq('id', entryId).eq('status', 'draft');
+    return { status: 'error', message: linesError.message, journalEntryId: null };
+  }
+
+  revalidatePath('/finanzas');
+
+  return {
+    status: 'success',
+    message: 'Draft journal entry creado correctamente.',
+    journalEntryId: entryId,
+  };
+}
+
+export async function postDraftJournalEntryAction(journalEntryId: string): Promise<PostDraftJournalEntryResult> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.', journalEntryId: null };
+  }
+
+  const rawPermissions = new Set<string>((session.user.permissions ?? []) as unknown as string[]);
+  const canManageLedger =
+    rawPermissions.has('finance.ledger.post')
+    || rawPermissions.has('finance.accounts.manage')
+    || hasPermission(session.user, 'finance.expenses.manage');
+
+  if (!canManageLedger) {
+    return { status: 'error', message: 'No tienes permisos para postear journal entries.', journalEntryId: null };
+  }
+
+  const { data: entryData } = await supabase
+    .from('journal_entries')
+    .select('id, status, source_type, source_id, entry_date')
+    .eq('id', journalEntryId)
+    .maybeSingle();
+
+  const entry = (entryData ?? null) as {
+    id: string;
+    status: 'draft' | 'posted' | 'reversed';
+    source_type: string;
+    source_id: string;
+    entry_date: string;
+  } | null;
+
+  const { data: linesData } = await supabase
+    .from('journal_entry_lines')
+    .select('id, account_id, debit, credit')
+    .eq('journal_entry_id', journalEntryId)
+    .order('created_at', { ascending: true });
+
+  const lines = (linesData ?? []) as Array<{
+    id: string;
+    account_id: string;
+    debit: number | string;
+    credit: number | string;
+  }>;
+
+  const validation = validateDraftJournalForPosting({ entry, lines });
+  if (!validation.ok) {
+    return { status: 'error', message: validation.errors.join(' '), journalEntryId: null };
+  }
+
+  const { error: updateError } = await supabase
+    .from('journal_entries')
+    .update({
+      status: 'posted',
+      posted_at: new Date().toISOString(),
+    })
+    .eq('id', journalEntryId)
+    .eq('status', 'draft');
+
+  if (updateError) {
+    return { status: 'error', message: updateError.message, journalEntryId: null };
+  }
+
+  revalidatePath('/finanzas');
+
+  return {
+    status: 'success',
+    message: 'Journal entry posteado correctamente.',
+    journalEntryId,
+  };
 }
 
 async function resolveAssignmentForPayout(

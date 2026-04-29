@@ -139,7 +139,7 @@ export function QuoteForm({ action, lead, quote, submitLabel }: QuoteFormProps) 
                   name="discount_type"
                   value={discountType}
                   onChange={(event) => setDiscountType(event.target.value as QuoteDiscountType)}
-                  className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="fixed">Fijo ($)</option>
                   <option value="percentage">Porcentaje (%)</option>
@@ -175,7 +175,7 @@ export function QuoteForm({ action, lead, quote, submitLabel }: QuoteFormProps) 
                   name="deposit_type"
                   value={depositType}
                   onChange={(event) => setDepositType(event.target.value as QuoteDepositType)}
-                  className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="fixed">Fijo ($)</option>
                   <option value="percentage">Porcentaje (%)</option>
@@ -286,7 +286,7 @@ function SelectField({ name, defaultValue, options }: { name: string; defaultVal
     <select
       name={name}
       defaultValue={defaultValue}
-      className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>
