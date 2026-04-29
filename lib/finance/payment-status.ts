@@ -104,6 +104,7 @@ export function getPaymentStatus(input: PaymentStatusInput): PaymentStatusResult
       // - We use expectedDeposit as a proxy amountPaid when invoice is partially_paid
       //   and no canonical collected-payment signal is available in this flow.
       // - expectedDeposit is NOT confirmed money collected.
+      // - TODO (Phase 9C+): prefer canonical `invoice_payments` succeeded totals once integrated.
       // - Replace this with a canonical collected-payment signal (or ledger) once available.
       reasons.push('temporary_expected_deposit_fallback');
       return makeResult('deposit_paid_balance_pending', 'warning', 'Deposit Paid / Balance Pending', reasons, totalExpected, expectedDeposit);

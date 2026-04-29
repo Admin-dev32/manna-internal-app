@@ -11,7 +11,7 @@ export function RevenueByClientTable({ rows }: { rows: Array<{ clientName: strin
         <CardTitle>Revenue by Client (signal)</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
-        {rows.length === 0 ? <p className="text-muted-foreground">No data for current filters.</p> : null}
+        {rows.length === 0 ? <p className="text-muted-foreground">No revenue rows by client for current filters.</p> : null}
         {rows.map((row) => (
           <div key={row.clientName} className="rounded-xl border border-border px-3 py-2">
             <p className="font-medium">{row.clientName}</p>

@@ -3,8 +3,11 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { InvoiceEmailPanel } from '@/components/finance/invoice-email-panel';
+import { InvoiceActionsPanel } from '@/components/finance/invoice-actions-panel';
+import { InvoicePaymentsPanel } from '@/components/finance/invoice-payments-panel';
+import type { InvoicePaymentSummary } from '@/lib/finance/invoice-payments';
 import type { FinanceInvoiceDetail } from '@/services/invoices/queries';
-import type { InvoiceEmailDeliveryRecord } from '@/types/invoices';
+import type { InvoiceEmailDeliveryRecord, InvoicePaymentRecord } from '@/types/invoices';
 
 function formatCurrency(value: number | string | null) {
   if (value === null || value === '') return 'N/A';
@@ -27,10 +30,18 @@ export function FinanceInvoiceDetailPanel({
   detail,
   deliveries,
   canManageInvoices,
+  payments,
+  paymentSummary,
+  canManagePayments,
+  depositAccounts,
 }: {
   detail: FinanceInvoiceDetail;
   deliveries: InvoiceEmailDeliveryRecord[];
   canManageInvoices: boolean;
+  payments: InvoicePaymentRecord[];
+  paymentSummary: InvoicePaymentSummary;
+  canManagePayments: boolean;
+  depositAccounts: Array<{ id: string; code: string; name: string }>;
 }) {
   return (
     <Card>
@@ -38,12 +49,14 @@ export function FinanceInvoiceDetailPanel({
         <CardTitle>Invoice detail · {detail.invoice.invoice_number}</CardTitle>
         <CardDescription>Centralized read-only invoice view from Finanzas.</CardDescription>
         <div>
-          <Link href="/finanzas" className="text-sm text-primary underline-offset-4 hover:underline">
+          <Link href="/finanzas/invoices" className="text-sm text-primary underline-offset-4 hover:underline">
             Back to invoices
           </Link>
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">Invoice Summary</h3>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={statusVariant(detail.invoice.status)}>{detail.invoice.status}</Badge>
           <Badge variant="secondary">{detail.source_label}</Badge>
@@ -71,11 +84,27 @@ export function FinanceInvoiceDetailPanel({
           <Field label="Client notes" value={detail.invoice.notes ?? 'Sin notas para cliente.'} />
           <Field label="Internal notes" value={detail.invoice.internal_notes ?? 'Sin notas internas.'} />
         </div>
+        </section>
+        <InvoiceActionsPanel invoice={detail.invoice} canManageInvoices={canManageInvoices} />
 
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">Payment Records</h3>
+        <InvoicePaymentsPanel
+          invoiceId={detail.invoice.id}
+          payments={payments}
+          summary={paymentSummary}
+          canManagePayments={canManagePayments}
+          depositAccounts={depositAccounts}
+        />
+        </section>
 
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">Email Delivery</h3>
+          <InvoiceEmailPanel detail={detail} deliveries={deliveries} canManageInvoices={canManageInvoices} />
+        </section>
 
-        <InvoiceEmailPanel detail={detail} deliveries={deliveries} canManageInvoices={canManageInvoices} />
-
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">Payment Links</h3>
         <div className="space-y-3 rounded-2xl border border-border bg-muted/10 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Payment links related channels</p>
           <p className="text-sm text-amber-700">
@@ -101,6 +130,7 @@ export function FinanceInvoiceDetailPanel({
             </div>
           )}
         </div>
+        </section>
       </CardContent>
     </Card>
   );

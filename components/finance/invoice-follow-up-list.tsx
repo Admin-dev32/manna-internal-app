@@ -38,7 +38,7 @@ export function InvoiceFollowUpList({ summary }: { summary: FinanceInvoiceAgingS
                 <p className="text-muted-foreground">Client: <span className="text-foreground">{invoice.client_full_name ?? 'Cliente no ligado'}</span></p>
                 <p className="text-muted-foreground">Balance: <span className="text-foreground">{formatMoney(invoice.balance_due)}</span></p>
                 <p className="text-muted-foreground">Due: <span className="text-foreground">{formatDate(invoice.due_at)}</span></p>
-                <Link href={`/finanzas?invoice=${invoice.id}`} className="text-primary underline-offset-4 hover:underline">
+                <Link href={`/finanzas/invoices?invoice=${invoice.id}`} className="text-primary underline-offset-4 hover:underline">
                   View detail
                 </Link>
               </div>

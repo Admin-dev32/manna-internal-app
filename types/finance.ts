@@ -9,11 +9,91 @@ export const FINANCIAL_EXPENSE_SCOPES = ['event', 'general'] as const;
 export const FINANCIAL_EXPENSE_STATUSES = ['draft', 'submitted', 'approved', 'rejected'] as const;
 export const CONTRACTOR_PAYOUT_STATUSES = ['draft', 'approved', 'paid', 'cancelled', 'reversed'] as const;
 export const CONTRACTOR_PAYOUT_PAYMENT_METHODS = ['cash', 'zelle', 'bank_transfer', 'card', 'other'] as const;
+export const CHART_ACCOUNT_TYPES = [
+  'asset',
+  'liability',
+  'equity',
+  'income',
+  'cost_of_goods_sold',
+  'expense',
+  'other_income',
+  'other_expense',
+] as const;
+export const CHART_ACCOUNT_NORMAL_BALANCES = ['debit', 'credit'] as const;
+export const JOURNAL_ENTRY_STATUSES = ['draft', 'posted', 'reversed'] as const;
+export const JOURNAL_ENTRY_SOURCE_TYPES = [
+  'invoice_issue',
+  'invoice_payment',
+  'expense_approved',
+  'payout_paid',
+  'reversal',
+  'adjustment',
+  'opening_balance',
+] as const;
 
 export type FinancialExpenseScope = (typeof FINANCIAL_EXPENSE_SCOPES)[number];
 export type FinancialExpenseStatus = (typeof FINANCIAL_EXPENSE_STATUSES)[number];
 export type ContractorPayoutStatus = (typeof CONTRACTOR_PAYOUT_STATUSES)[number];
 export type ContractorPayoutPaymentMethod = (typeof CONTRACTOR_PAYOUT_PAYMENT_METHODS)[number];
+export type ChartAccountType = (typeof CHART_ACCOUNT_TYPES)[number];
+export type ChartAccountNormalBalance = (typeof CHART_ACCOUNT_NORMAL_BALANCES)[number];
+export type JournalEntryStatus = (typeof JOURNAL_ENTRY_STATUSES)[number];
+export type JournalEntrySourceType = (typeof JOURNAL_ENTRY_SOURCE_TYPES)[number];
+
+export interface ChartOfAccountRecord {
+  id: string;
+  code: string;
+  name: string;
+  account_type: ChartAccountType;
+  normal_balance: ChartAccountNormalBalance;
+  parent_account_id: string | null;
+  description: string | null;
+  active: boolean;
+  system_account: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinanceAccountMappingRecord {
+  id: string;
+  mapping_key: string;
+  account_id: string;
+  description: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JournalEntryRecord {
+  id: string;
+  entry_date: string;
+  source_type: JournalEntrySourceType;
+  source_id: string;
+  description: string | null;
+  status: JournalEntryStatus;
+  created_by: string | null;
+  posted_at: string | null;
+  reversed_entry_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JournalEntryLineRecord {
+  id: string;
+  journal_entry_id: string;
+  account_id: string;
+  debit: number | string;
+  credit: number | string;
+  memo: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  created_at: string;
+}
+
+export interface JournalEntryWithLines {
+  entry: JournalEntryRecord;
+  lines: JournalEntryLineRecord[];
+}
 
 export interface FinancialSettingsRecord {
   id: string;
@@ -167,6 +247,7 @@ export interface FinancialExpenseCategoryRecord {
   deductible_default: boolean;
   requires_receipt: boolean;
   report_group: string | null;
+  default_account_id: string | null;
   active: boolean;
   sort_order: number;
   created_at: string;
