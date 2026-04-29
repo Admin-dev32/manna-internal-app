@@ -146,7 +146,7 @@ export function PreEventsOperationsBoard({ preEvents, clients, quotes, latestInv
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as 'todos' | PreEventStatus)}
-              className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="todos">Todos</option>
               {preEventStatusOptions.map((option) => (
@@ -160,7 +160,7 @@ export function PreEventsOperationsBoard({ preEvents, clients, quotes, latestInv
             <select
               value={dateFilter}
               onChange={(event) => setDateFilter(event.target.value as DateFilter)}
-              className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="todas">Todas</option>
               <option value="sin_fecha">Sin fecha confirmada</option>
@@ -362,7 +362,7 @@ function QuickEditForm({ preEvent }: { preEvent: PreEventRecord }) {
             <select
               name="status"
               defaultValue={preEvent.status}
-              className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {preEventStatusOptions.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>

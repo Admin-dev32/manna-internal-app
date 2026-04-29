@@ -6,6 +6,8 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { ClientRecord } from '@/types/clients';
 import type { EventRecord, EventFinanceSnapshot } from '@/types/events';
 import type {
+  ChartOfAccountRecord,
+  FinanceAccountMappingRecord,
   ContractorPayoutRecord,
   EditableFinancialExpense,
   FinanceExpenseEventSearchOption,
@@ -13,6 +15,11 @@ import type {
   FinancialExpenseCategoryRecord,
   FinancialSettingsRecord,
   FinancialChangeLogRecord,
+  JournalEntryLineRecord,
+  JournalEntryRecord,
+  JournalEntrySourceType,
+  JournalEntryStatus,
+  JournalEntryWithLines,
   QuoteFinancialExpenseRecord,
   QuoteFinancialSheetDraft,
   QuoteFinancialSheetRecord,
@@ -41,6 +48,125 @@ function asNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === '') return 0;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export interface JournalEntryFilters {
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  status?: JournalEntryStatus | 'all';
+  sourceType?: JournalEntrySourceType | 'all';
+  accountId?: string | null;
+  limit?: number;
+}
+
+export async function getJournalEntries(filters: JournalEntryFilters = {}) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as JournalEntryRecord[];
+
+  const safeLimit = Number.isFinite(filters.limit) ? Math.min(Math.max(Math.trunc(filters.limit ?? 120), 1), 500) : 120;
+
+  let journalEntryIdsByAccount: string[] | null = null;
+  if (filters.accountId) {
+    const { data: linesData } = await supabase
+      .from('journal_entry_lines')
+      .select('journal_entry_id')
+      .eq('account_id', filters.accountId)
+      .limit(2000);
+
+    journalEntryIdsByAccount = [...new Set(((linesData ?? []) as Array<Pick<JournalEntryLineRecord, 'journal_entry_id'>>).map((line) => line.journal_entry_id))];
+    if (journalEntryIdsByAccount.length === 0) return [] as JournalEntryRecord[];
+  }
+
+  let query = supabase.from('journal_entries').select('*').order('entry_date', { ascending: false }).order('created_at', { ascending: false }).limit(safeLimit);
+
+  if (filters.dateFrom) query = query.gte('entry_date', filters.dateFrom);
+  if (filters.dateTo) query = query.lte('entry_date', filters.dateTo);
+  if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status);
+  if (filters.sourceType && filters.sourceType !== 'all') query = query.eq('source_type', filters.sourceType);
+  if (journalEntryIdsByAccount) query = query.in('id', journalEntryIdsByAccount);
+
+  const { data } = await query;
+  return (data ?? []) as JournalEntryRecord[];
+}
+
+export async function getJournalEntryById(id: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null as JournalEntryWithLines | null;
+
+  const [{ data: entryData }, { data: linesData }] = await Promise.all([
+    supabase.from('journal_entries').select('*').eq('id', id).maybeSingle(),
+    supabase.from('journal_entry_lines').select('*').eq('journal_entry_id', id).order('created_at', { ascending: true }),
+  ]);
+
+  const entry = (entryData as JournalEntryRecord | null) ?? null;
+  if (!entry) return null;
+
+  return {
+    entry,
+    lines: (linesData ?? []) as JournalEntryLineRecord[],
+  } satisfies JournalEntryWithLines;
+}
+
+export async function getChartOfAccounts() {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as ChartOfAccountRecord[];
+
+  const { data } = await supabase.from('chart_of_accounts').select('*').order('code', { ascending: true });
+  return (data ?? []) as ChartOfAccountRecord[];
+}
+
+export async function getActiveChartOfAccounts() {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as ChartOfAccountRecord[];
+
+  const { data } = await supabase
+    .from('chart_of_accounts')
+    .select('*')
+    .eq('active', true)
+    .order('code', { ascending: true });
+
+  return (data ?? []) as ChartOfAccountRecord[];
+}
+
+export async function getFinanceAccountMappings() {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as FinanceAccountMappingRecord[];
+
+  const { data } = await supabase.from('finance_account_mappings').select('*').order('mapping_key', { ascending: true });
+  return (data ?? []) as FinanceAccountMappingRecord[];
+}
+
+export interface FinancialExpenseCategoryWithAccount extends FinancialExpenseCategoryRecord {
+  default_account: Pick<ChartOfAccountRecord, 'id' | 'code' | 'name' | 'account_type' | 'normal_balance' | 'active'> | null;
+}
+
+export async function getExpenseCategoriesWithAccounts() {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as FinancialExpenseCategoryWithAccount[];
+
+  const { data: categoriesData } = await supabase
+    .from('financial_expense_categories')
+    .select('*')
+    .order('sort_order', { ascending: true });
+  const categories = (categoriesData ?? []) as FinancialExpenseCategoryRecord[];
+  if (categories.length === 0) return [] as FinancialExpenseCategoryWithAccount[];
+
+  const accountIds = [...new Set(categories.map((category) => category.default_account_id).filter(Boolean))] as string[];
+  const { data: accountsData } = accountIds.length > 0
+    ? await supabase
+        .from('chart_of_accounts')
+        .select('id, code, name, account_type, normal_balance, active')
+        .in('id', accountIds)
+    : { data: [] };
+
+  const accountById = Object.fromEntries(
+    (((accountsData ?? []) as Array<Pick<ChartOfAccountRecord, 'id' | 'code' | 'name' | 'account_type' | 'normal_balance' | 'active'>>).map((account) => [account.id, account])),
+  ) as Record<string, Pick<ChartOfAccountRecord, 'id' | 'code' | 'name' | 'account_type' | 'normal_balance' | 'active'>>;
+
+  return categories.map((category) => ({
+    ...category,
+    default_account: category.default_account_id ? accountById[category.default_account_id] ?? null : null,
+  }));
 }
 
 export async function getFinancialSettings() {

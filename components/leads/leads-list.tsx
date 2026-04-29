@@ -1169,7 +1169,7 @@ function SelectControl({
         {label}
       </span>
       <select
-        className="flex h-11 w-full rounded-2xl border border-input bg-white px-4 py-2 text-sm font-medium tracking-normal text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-11 w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm font-medium tracking-normal text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >

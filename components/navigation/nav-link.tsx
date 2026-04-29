@@ -75,14 +75,14 @@ export function NavLink({ href, label, description, icon, matchPrefixes, compact
         'group relative flex items-center gap-3 overflow-visible rounded-2xl border border-transparent text-sm transition-all',
         isActive
           ? 'border-primary/20 bg-primary/10 text-primary shadow-sm'
-          : 'text-muted-foreground hover:border-border hover:bg-white/90 hover:text-foreground',
+          : 'text-muted-foreground hover:border-border hover:bg-muted/70 hover:text-foreground',
         compact ? 'flex-col gap-1 px-2 py-2 text-xs' : 'py-3',
         collapsed && !compact ? 'justify-center px-2.5' : 'px-3.5',
       )}
     >
       <span
         className={cn(
-          'flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-white shadow-sm transition-colors',
+          'flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-card shadow-sm transition-colors',
           compact ? 'size-9' : collapsed ? 'size-11' : 'size-10',
           isActive ? 'border-primary/10 bg-primary/5' : 'group-hover:border-border/80',
         )}

@@ -17,14 +17,14 @@ export function AlertBanner({ title, description, variant = 'info' }: AlertBanne
     <Card
       className={cn(
         'border-dashed',
-        variant === 'warning' ? 'border-amber-200 bg-amber-50/90' : 'border-primary/20 bg-primary/5',
+        variant === 'warning' ? 'border-border bg-muted' : 'border-primary/20 bg-primary/5',
       )}
     >
       <CardContent className="flex items-start gap-4 p-5">
         <div
           className={cn(
             'mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-2xl',
-            variant === 'warning' ? 'bg-amber-100 text-amber-700' : 'bg-primary/10 text-primary',
+            variant === 'warning' ? 'bg-background text-foreground' : 'bg-primary/10 text-primary',
           )}
         >
           <Icon className="size-5" />
