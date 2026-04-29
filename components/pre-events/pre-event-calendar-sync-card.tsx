@@ -51,12 +51,12 @@ export function PreEventCalendarSyncCard({
         <AuthFeedback state={state} />
 
         <div className="rounded-2xl border border-border bg-muted/20 p-4 text-sm">
-          <p>
-            Estado:{' '}
+          <div className="flex items-center gap-2">
+            <span>Estado:</span>
             <Badge variant={isSynced ? 'success' : sync?.sync_status === 'error' ? 'warning' : 'outline'}>
               {statusLabel}
             </Badge>
-          </p>
+          </div>
           {sync?.sync_origin === 'inherited' ? <p className="mt-1 text-sky-700">Este vínculo fue heredado y no es ownership final.</p> : null}
           {sync?.ownership_note ? <p className="mt-1 text-muted-foreground">{sync.ownership_note}</p> : null}
           <p className="mt-1">Calendarizado: {isSynced ? 'Sí' : 'No'}</p>

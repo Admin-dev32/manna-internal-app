@@ -12,6 +12,7 @@ import { composeInvoicePurposeEmail, resolveInvoiceEmailPurpose, resolveInvoiceE
 import { requireActiveSession } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
 import { validateRecordManualInvoicePaymentInput, type RecordManualInvoicePaymentInput } from '@/lib/finance/invoice-payments';
+import { canDeleteDraftManualInvoice, canVoidManualInvoice, validateVoidReason } from '@/lib/finance/manual-invoice-dependencies';
 import { validateCreateManualInvoiceInput } from '@/lib/finance/manual-invoices';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { InvoiceFormState } from '@/services/invoices/form-state';
@@ -49,6 +50,50 @@ function buildInvoiceNumber(quoteId: string) {
 
 function buildManualInvoiceNumber() {
   return buildInvoiceNumber(randomUUID());
+}
+
+async function loadManualInvoiceDependencies(invoice: { id: string; source_type: string; source_id: string | null; pre_event_id: string | null; event_id: string | null; quote_id: string | null }) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const [{ count: invoicePaymentsCount }, { count: invoiceEmailDeliveriesCount }, { count: journalLinesCount }, { data: journalEntriesData }] = await Promise.all([
+    supabase.from('invoice_payments').select('id', { count: 'exact', head: true }).eq('invoice_id', invoice.id),
+    supabase.from('invoice_email_deliveries').select('id', { count: 'exact', head: true }).eq('invoice_id', invoice.id),
+    supabase
+      .from('journal_entry_lines')
+      .select('id, journal_entries!inner(status)', { count: 'exact', head: true })
+      .eq('entity_type', 'invoice')
+      .eq('entity_id', invoice.id),
+    supabase.from('journal_entries').select('id, status, source_type, source_id'),
+  ]);
+
+  const invoiceId = invoice.id;
+  const relatedSourceIds = new Set<string>([invoiceId]);
+  if (invoice.source_id) relatedSourceIds.add(invoice.source_id);
+  if (invoice.pre_event_id) relatedSourceIds.add(invoice.pre_event_id);
+  if (invoice.event_id) relatedSourceIds.add(invoice.event_id);
+  if (invoice.quote_id) relatedSourceIds.add(invoice.quote_id);
+  const journalEntries = (journalEntriesData ?? []).filter((entry) => relatedSourceIds.has(String(entry.source_id)));
+  const postedJournalRefsCount = journalEntries.filter((entry) => entry.status === 'posted').length;
+
+  let paymentLinksCount: number | null = null;
+  if (invoice.pre_event_id) {
+    const { count } = await supabase
+      .from('payment_links')
+      .select('id', { count: 'exact', head: true })
+      .eq('source_record_type', 'pre_event')
+      .eq('source_record_id', invoice.pre_event_id);
+    paymentLinksCount = count ?? 0;
+  }
+
+  return {
+    invoicePaymentsCount: invoicePaymentsCount ?? 0,
+    invoiceEmailDeliveriesCount: invoiceEmailDeliveriesCount ?? 0,
+    paymentLinksCount,
+    journalEntriesCount: journalEntries.length,
+    journalLinesCount: journalLinesCount ?? 0,
+    postedJournalRefsCount,
+  };
 }
 
 export async function issueInvoiceFromQuoteAction(
@@ -391,6 +436,94 @@ export async function recordManualInvoicePaymentAction(invoiceId: string, input:
   // after canonical payment semantics are fully integrated across reports and UI.
   revalidatePath('/finanzas' as Route);
   return { status: 'success', message: `Pago manual registrado para ${invoice.invoice_number}.` };
+}
+
+export async function updateManualInvoiceAction(invoiceId: string, input: CreateManualInvoiceInput): Promise<InvoiceFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  if (!hasPermission(session.user, 'finance.invoices.manage')) return { status: 'error', message: 'No tienes permisos para editar invoices manuales.' };
+
+  const { data: invoice } = await supabase.from('invoices').select('id, source_type, status').eq('id', invoiceId).maybeSingle();
+  if (!invoice || invoice.source_type !== 'manual') return { status: 'error', message: 'Solo puedes editar invoices manuales existentes.' };
+  if (invoice.status !== 'draft') return { status: 'error', message: 'Solo puedes editar invoices manuales en estado draft.' };
+
+  const validated = validateCreateManualInvoiceInput(input);
+  if (!validated.ok) return { status: 'error', message: validated.message };
+
+  const payload = validated.value;
+  const { error } = await supabase
+    .from('invoices')
+    .update({
+      client_id: payload.clientId,
+      manual_title: payload.manualTitle,
+      manual_description: payload.manualDescription,
+      manual_customer_name: payload.manualCustomerName,
+      manual_customer_email: payload.manualCustomerEmail,
+      subtotal: payload.subtotal,
+      discount_amount: payload.discountAmount,
+      total_amount: payload.totalAmount,
+      deposit_amount: payload.depositAmount,
+      balance_due: payload.balanceDue,
+      due_at: payload.dueAtIso,
+      notes: payload.notes,
+      updated_by: session.user.id,
+    })
+    .eq('id', invoiceId)
+    .eq('source_type', 'manual')
+    .eq('status', 'draft');
+
+  if (error) return { status: 'error', message: `No pudimos actualizar el invoice manual (${error.code ?? 'error-desconocido'}).` };
+  revalidatePath('/finanzas' as Route);
+  return { status: 'success', message: 'Invoice manual actualizado correctamente.' };
+}
+
+export async function voidInvoiceAction(invoiceId: string, reason: string): Promise<InvoiceFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  if (!hasPermission(session.user, 'finance.invoices.manage')) return { status: 'error', message: 'No tienes permisos para anular invoices.' };
+
+  const reasonValidation = validateVoidReason(reason);
+  if (!reasonValidation.ok) return { status: 'error', message: reasonValidation.message };
+
+  const { data: invoice } = await supabase.from('invoices').select('id, source_type, source_id, pre_event_id, event_id, quote_id, status').eq('id', invoiceId).maybeSingle();
+  if (!invoice || invoice.source_type !== 'manual') return { status: 'error', message: 'Solo puedes anular invoices manuales existentes.' };
+  if (invoice.status === 'void') return { status: 'success', message: 'El invoice ya se encuentra anulado.' };
+
+  const dependencies = await loadManualInvoiceDependencies(invoice);
+  if (!dependencies) return { status: 'error', message: 'No fue posible validar dependencias del invoice.' };
+  const allowed = canVoidManualInvoice(dependencies);
+  if (!allowed.ok) return { status: 'error', message: allowed.message };
+
+  const { error } = await supabase
+    .from('invoices')
+    .update({ status: 'void', void_reason: reasonValidation.value, voided_at: new Date().toISOString(), voided_by: session.user.id, updated_by: session.user.id })
+    .eq('id', invoiceId);
+  if (error) return { status: 'error', message: `No pudimos anular el invoice (${error.code ?? 'error-desconocido'}).` };
+  revalidatePath('/finanzas/invoices' as Route);
+  return { status: 'success', message: 'Invoice anulado correctamente.' };
+}
+
+export async function deleteDraftInvoiceAction(invoiceId: string): Promise<InvoiceFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+  if (!supabase || !session.user) return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  if (!hasPermission(session.user, 'finance.invoices.manage')) return { status: 'error', message: 'No tienes permisos para eliminar invoices draft.' };
+
+  const { data: invoice } = await supabase.from('invoices').select('id, source_type, source_id, pre_event_id, event_id, quote_id, status').eq('id', invoiceId).maybeSingle();
+  if (!invoice || invoice.source_type !== 'manual') return { status: 'error', message: 'Solo puedes eliminar invoices manuales existentes.' };
+  if (invoice.status !== 'draft') return { status: 'error', message: 'Solo puedes eliminar invoices manuales en estado draft.' };
+
+  const dependencies = await loadManualInvoiceDependencies(invoice);
+  if (!dependencies) return { status: 'error', message: 'No fue posible validar dependencias del invoice.' };
+  const allowed = canDeleteDraftManualInvoice(dependencies);
+  if (!allowed.ok) return { status: 'error', message: allowed.message };
+
+  const { error } = await supabase.from('invoices').delete().eq('id', invoiceId).eq('status', 'draft').eq('source_type', 'manual');
+  if (error) return { status: 'error', message: `No pudimos eliminar el invoice (${error.code ?? 'error-desconocido'}).` };
+  revalidatePath('/finanzas' as Route);
+  return { status: 'success', message: 'Invoice draft eliminado correctamente.' };
 }
 
 

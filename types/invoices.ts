@@ -46,6 +46,9 @@ export interface InvoiceRecord {
   due_at: string | null;
   notes: string | null;
   internal_notes: string | null;
+  void_reason: string | null;
+  voided_at: string | null;
+  voided_by: string | null;
   customer_snapshot: Record<string, unknown>;
   event_snapshot: Record<string, unknown>;
   financial_snapshot: Record<string, unknown>;

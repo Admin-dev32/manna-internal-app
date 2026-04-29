@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { InvoiceEmailPanel } from '@/components/finance/invoice-email-panel';
+import { InvoiceActionsPanel } from '@/components/finance/invoice-actions-panel';
 import { InvoicePaymentsPanel } from '@/components/finance/invoice-payments-panel';
 import type { InvoicePaymentSummary } from '@/lib/finance/invoice-payments';
 import type { FinanceInvoiceDetail } from '@/services/invoices/queries';
@@ -84,6 +85,7 @@ export function FinanceInvoiceDetailPanel({
           <Field label="Internal notes" value={detail.invoice.internal_notes ?? 'Sin notas internas.'} />
         </div>
         </section>
+        <InvoiceActionsPanel invoice={detail.invoice} canManageInvoices={canManageInvoices} />
 
         <section className="space-y-3">
           <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">Payment Records</h3>
