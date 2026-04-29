@@ -49,19 +49,50 @@ export function InvoiceActionsPanel({ invoice, canManageInvoices }: { invoice: I
   const canVoid = canManageInvoices && isManual && invoice.status !== 'void';
   const canDeleteDraft = canManageInvoices && isManual && isDraft;
 
-  const blockedMessage = useMemo(() => {
-    if (!canManageInvoices) return 'You need finance.invoices.manage to run invoice actions.';
-    if (invoice.source_type !== 'manual') return 'Quote-based invoices are not edited directly.';
-    if (invoice.status === 'void') return 'Void invoices are preserved for audit history.';
-    if (invoice.status === 'paid' || invoice.status === 'partially_paid') return 'Paid or partially paid invoices cannot be edited directly.';
-    return 'Delete is only available for clean manual drafts.';
+  const contextualMessages = useMemo(() => {
+    if (!canManageInvoices) return ['You need finance.invoices.manage to run invoice actions.'];
+
+    const messages: string[] = [
+      'Edit is only available for manual draft invoices.',
+      'Delete is only available for unused manual draft invoices.',
+    ];
+
+    if (invoice.source_type !== 'manual') {
+      messages.push('Quote-based invoices are not edited directly.');
+    }
+
+    if (invoice.status === 'issued' && invoice.source_type === 'manual') {
+      messages.push('This invoice is issued. Direct editing is locked in this phase. Use Void Invoice if you need to cancel it, or create a corrected invoice.');
+      messages.push('Issued invoices are locked from direct editing in this phase.');
+    }
+
+    if (invoice.status === 'paid' || invoice.status === 'partially_paid') {
+      messages.push('Paid/partially paid invoices cannot be edited directly.');
+    }
+
+    if (invoice.status === 'void') {
+      messages.push('Void invoices are preserved for audit history.');
+    }
+
+    return messages;
   }, [canManageInvoices, invoice.source_type, invoice.status]);
 
   return (
     <section className="space-y-3 rounded-2xl border border-border bg-muted/10 p-4">
       <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">Invoice Actions</h3>
 
-      {!canEdit && !canVoid && !canDeleteDraft ? <p className="text-sm text-muted-foreground">{blockedMessage}</p> : null}
+      {canManageInvoices ? (
+        <div className="rounded-xl border border-border bg-background p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Action policy</p>
+          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+            {contextualMessages.map((message) => (
+              <li key={message}>• {message}</li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">{contextualMessages[0]}</p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {canEdit ? <Button type="button" variant="outline" onClick={() => setShowEdit((current) => !current)}>Edit Draft</Button> : null}
