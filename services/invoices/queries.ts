@@ -1,7 +1,8 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { ClientRecord } from '@/types/clients';
 import type { EventRecord } from '@/types/events';
-import type { InvoiceEmailDeliveryRecord, InvoiceRecord } from '@/types/invoices';
+import { computeInvoicePaymentSummary, type InvoicePaymentSummary } from '@/lib/finance/invoice-payments';
+import type { InvoiceEmailDeliveryRecord, InvoicePaymentRecord, InvoiceRecord } from '@/types/invoices';
 import type { PaymentLinkRecord } from '@/types/payments';
 import type { PreEventRecord } from '@/types/pre-events';
 import type { QuoteRecord } from '@/types/quotes';
@@ -32,6 +33,25 @@ export async function getInvoiceEmailDeliveriesByInvoiceId(invoiceId: string) {
     .limit(25);
 
   return (data ?? []) as InvoiceEmailDeliveryRecord[];
+}
+
+export async function getInvoicePaymentsByInvoiceId(invoiceId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return [] as InvoicePaymentRecord[];
+
+  const { data } = await supabase
+    .from('invoice_payments')
+    .select('*')
+    .eq('invoice_id', invoiceId)
+    .order('payment_date', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  return (data ?? []) as InvoicePaymentRecord[];
+}
+
+export async function getInvoicePaymentSummaryByInvoiceId(invoiceId: string): Promise<InvoicePaymentSummary> {
+  const payments = await getInvoicePaymentsByInvoiceId(invoiceId);
+  return computeInvoicePaymentSummary(payments);
 }
 
 export interface FinanceInvoiceListFilters {
