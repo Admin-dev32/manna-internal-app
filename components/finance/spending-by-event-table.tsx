@@ -11,7 +11,7 @@ export function SpendingByEventTable({ rows }: { rows: Array<{ eventLabel: strin
         <CardTitle>Spending by Event (approved)</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
-        {rows.length === 0 ? <p className="text-muted-foreground">No data for current filters.</p> : null}
+        {rows.length === 0 ? <p className="text-muted-foreground">No spending rows by event for current filters.</p> : null}
         {rows.map((row) => (
           <div key={row.eventLabel} className="flex items-center justify-between rounded-xl border border-border px-3 py-2">
             <span className="line-clamp-1">{row.eventLabel}</span>

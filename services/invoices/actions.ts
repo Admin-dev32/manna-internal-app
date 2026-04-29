@@ -11,6 +11,7 @@ import { composeInvoicePurposeEmail, resolveInvoiceEmailPurpose, resolveInvoiceE
 
 import { requireActiveSession } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
+import { validateRecordManualInvoicePaymentInput, type RecordManualInvoicePaymentInput } from '@/lib/finance/invoice-payments';
 import { validateCreateManualInvoiceInput } from '@/lib/finance/manual-invoices';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { InvoiceFormState } from '@/services/invoices/form-state';
@@ -338,6 +339,58 @@ export async function createManualInvoiceAction(input: CreateManualInvoiceInput)
   }
 
   return { status: 'error', message: 'No pudimos generar un número de invoice único. Intenta nuevamente.' };
+}
+
+export async function recordManualInvoicePaymentAction(invoiceId: string, input: RecordManualInvoicePaymentInput): Promise<InvoiceFormState> {
+  const session = await requireActiveSession();
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || !session.user) {
+    return { status: 'error', message: 'No fue posible abrir la conexión con Supabase.' };
+  }
+
+  const hasPaymentsManage = (session.user.permissions as string[]).includes('finance.payments.manage');
+  if (!hasPermission(session.user, 'finance.invoices.manage') && !hasPaymentsManage) {
+    return { status: 'error', message: 'No tienes permisos para registrar pagos de invoice.' };
+  }
+
+  const { data: invoice } = await supabase.from('invoices').select('id, invoice_number').eq('id', invoiceId).maybeSingle();
+  if (!invoice) {
+    return { status: 'error', message: 'No encontramos el invoice solicitado.' };
+  }
+
+  const validated = validateRecordManualInvoicePaymentInput(input);
+  if (!validated.ok) {
+    return { status: 'error', message: validated.message };
+  }
+
+  const prepared = validated.value;
+
+  const { error } = await supabase.from('invoice_payments').insert({
+    invoice_id: invoice.id,
+    amount: prepared.amount,
+    payment_date: prepared.paymentDate,
+    payment_method: prepared.paymentMethod,
+    provider: null,
+    provider_payment_id: null,
+    reference: prepared.reference,
+    source_type: 'manual',
+    status: 'succeeded',
+    fee_amount: prepared.feeAmount,
+    deposited_to_account_id: prepared.depositedToAccountId,
+    notes: prepared.notes,
+    created_by: session.user.id,
+  });
+
+  if (error) {
+    return { status: 'error', message: `No pudimos registrar el pago (${error.code ?? 'error-desconocido'}).` };
+  }
+
+  // Intentional in Phase 9C:
+  // invoice status/balance synchronization will be handled in a dedicated follow-up phase
+  // after canonical payment semantics are fully integrated across reports and UI.
+  revalidatePath('/finanzas' as Route);
+  return { status: 'success', message: `Pago manual registrado para ${invoice.invoice_number}.` };
 }
 
 
