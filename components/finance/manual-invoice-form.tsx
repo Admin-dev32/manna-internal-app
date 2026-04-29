@@ -139,6 +139,12 @@ export function ManualInvoiceForm({ manualInvoiceClients }: { manualInvoiceClien
 
       {isOpen ? (
         <form className="space-y-4" onSubmit={onSubmit}>
+          <div className="rounded-xl border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+            <p className="font-semibold text-foreground">Customer selection guidance</p>
+            <p className="mt-1">
+              Prefer selecting an <strong>existing client</strong>. Use manual customer fields only when no existing client should be linked.
+            </p>
+          </div>
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2 md:col-span-2">
               <label className="flex flex-col gap-2 text-sm font-medium">
@@ -165,7 +171,7 @@ export function ManualInvoiceForm({ manualInvoiceClients }: { manualInvoiceClien
               ) : (
                 <div className="max-h-44 space-y-2 overflow-auto rounded-xl border border-border bg-background p-2">
                   {filteredClients.length === 0 ? (
-                    <p className="px-2 py-1 text-xs text-muted-foreground">No matching clients.</p>
+                    <p className="px-2 py-1 text-xs text-muted-foreground">No matching clients. You can continue with a manual customer below.</p>
                   ) : (
                     filteredClients.map((client) => (
                       <button
@@ -185,6 +191,9 @@ export function ManualInvoiceForm({ manualInvoiceClients }: { manualInvoiceClien
             </div>
             {!formValues.clientId ? (
               <>
+                <p className="text-xs text-muted-foreground md:col-span-2">
+                  Manual customer mode is active because no existing client is selected.
+                </p>
                 <label className="flex flex-col gap-2 text-sm font-medium">
                   Customer name (manual)
                   <Input

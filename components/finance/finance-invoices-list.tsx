@@ -60,12 +60,16 @@ export function FinanceInvoicesList({
     <Card>
       <CardHeader>
         <CardTitle>Invoices</CardTitle>
-        <CardDescription>
-          Browse quote and manual invoices from Finanzas.
-        </CardDescription>
+        <CardDescription>Browse quote and manual invoices from Finanzas.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {canManage ? <ManualInvoiceForm manualInvoiceClients={manualInvoiceClients} /> : null}
+        {canManage ? (
+          <div className="space-y-2 rounded-2xl border border-border bg-muted/10 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Primary action</p>
+            <p className="text-sm text-muted-foreground">Create a manual invoice when a quote-linked invoice is not the right path.</p>
+            <ManualInvoiceForm manualInvoiceClients={manualInvoiceClients} />
+          </div>
+        ) : null}
         {!canView ? (
           <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
             No tienes permisos `finance.invoices.view` / `finance.invoices.manage` para consultar invoices.
@@ -101,7 +105,7 @@ export function FinanceInvoicesList({
 
             {filteredInvoices.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-                No hay invoices para los filtros seleccionados.
+                No invoices match the selected filters. Try clearing search/status filters or create a manual invoice.
               </div>
             ) : (
               <div className="space-y-3">
@@ -130,7 +134,7 @@ export function FinanceInvoicesList({
                     </div>
 
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Link href={`/finanzas?invoice=${invoice.id}`} className="text-sm text-primary underline-offset-4 hover:underline">
+                      <Link href={`/finanzas/invoices?invoice=${invoice.id}`} className="text-sm text-primary underline-offset-4 hover:underline">
                         View detail
                       </Link>
                       {invoice.quote_id ? (
