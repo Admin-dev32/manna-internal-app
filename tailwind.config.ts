@@ -42,6 +42,17 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        shell: {
+          canvas: 'hsl(var(--shell-canvas))',
+          surface: 'hsl(var(--shell-surface))',
+          'surface-muted': 'hsl(var(--shell-surface-muted))',
+          border: 'hsl(var(--shell-border))',
+          subtle: 'hsl(var(--shell-subtle))',
+          warning: 'hsl(var(--shell-warning))',
+          'warning-foreground': 'hsl(var(--shell-warning-foreground))',
+          'nav-accent': 'hsl(var(--shell-nav-accent) / <alpha-value>)',
+          'nav-accent-foreground': 'hsl(var(--shell-nav-accent-foreground) / <alpha-value>)',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -50,9 +61,19 @@ const config: Config = {
       },
       boxShadow: {
         panel: '0 16px 48px -24px rgba(15, 23, 42, 0.28)',
+        'shell-sm': '0 8px 24px -20px rgba(15, 23, 42, 0.35)',
+        'shell-md': '0 18px 48px -28px rgba(15, 23, 42, 0.38)',
+        'shell-lg': '0 28px 80px -38px rgba(15, 23, 42, 0.42)',
       },
       fontFamily: {
         sans: ['var(--font-sans)', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+      },
+      maxWidth: {
+        'shell-content': 'var(--shell-content-width)',
+        'shell-wide': 'var(--shell-wide-width)',
+      },
+      height: {
+        'shell-header': 'var(--shell-header-height)',
       },
     },
   },

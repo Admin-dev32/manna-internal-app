@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 
 export interface BreadcrumbItem {
   label: string;
-  href?: Route | string;
+  href?: Route;
 }
 
 export function AppBreadcrumbs({ items, className }: { items: BreadcrumbItem[]; className?: string }) {

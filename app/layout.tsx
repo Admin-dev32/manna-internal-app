@@ -22,7 +22,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
               (function () {
                 try {
                   var stored = window.localStorage.getItem('manna.theme.mode');
-                  var isNight = stored === 'night';
+                  var isNight = stored === 'day' ? false : true;
                   document.documentElement.classList.toggle('dark', isNight);
                   document.body && document.body.classList.toggle('dark', isNight);
                 } catch (error) {

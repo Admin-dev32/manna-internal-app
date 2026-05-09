@@ -2,10 +2,13 @@
 
 import type { ReactNode } from 'react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { usePathname } from 'next/navigation';
 
+import { PageContainer } from '@/components/layout/page-container';
+import { PlatformDemoBanner } from '@/components/layout/platform-demo-banner';
+import { PlatformWelcomeGate } from '@/components/layout/platform-welcome-gate';
 import { MobileNav } from '@/components/navigation/mobile-nav';
-import { Sidebar } from '@/components/navigation/sidebar';
-import { APP_CONFIG } from '@/config/app';
+import { SideMegaMenu } from '@/components/navigation/side-mega-menu';
 import type { SessionContext } from '@/types/auth';
 
 import { AppHeader } from './app-header';
@@ -15,7 +18,6 @@ interface AppShellProps {
   children: ReactNode;
 }
 
-const SIDEBAR_STORAGE_KEY = 'manna.sidebar.collapsed';
 const THEME_STORAGE_KEY = 'manna.theme.mode';
 const WELCOME_STORAGE_KEY = 'manna.welcome.seen.v1';
 
@@ -33,19 +35,15 @@ function subscribeStorage(onStoreChange: () => void) {
 }
 
 export function AppShell({ session, children }: AppShellProps) {
-  const isSidebarCollapsed = useSyncExternalStore(
-    subscribeStorage,
-    () => window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true',
-    () => false,
-  );
+  const pathname = usePathname();
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const themeMode = useSyncExternalStore<ThemeMode>(
     subscribeStorage,
     () => {
       const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-      return storedTheme === 'night' || storedTheme === 'day' ? storedTheme : 'day';
+      return storedTheme === 'night' || storedTheme === 'day' ? storedTheme : 'night';
     },
-    () => 'day',
+    () => 'night',
   );
   const hasSeenWelcome = useSyncExternalStore(
     subscribeStorage,
@@ -72,69 +70,51 @@ export function AppShell({ session, children }: AppShellProps) {
   }
 
   if (!hasSeenWelcome) {
-    const welcomeLabel = currentUser.nombre?.trim() ? `Welcome, ${currentUser.nombre}` : 'Welcome';
-
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
-        <div className="w-full max-w-xl rounded-3xl border border-border bg-card p-8 text-center shadow-panel">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Manna Internal App</p>
-          <h1 className="mt-3 text-3xl font-semibold">{welcomeLabel}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Before entering, confirm you are ready to start your operational session.</p>
-          <button
-            type="button"
-            className="mt-8 inline-flex h-11 items-center justify-center rounded-2xl bg-primary px-6 text-sm font-semibold text-primary-foreground transition hover:opacity-95"
-            onClick={() => {
-              window.sessionStorage.setItem(`${WELCOME_STORAGE_KEY}:${currentUser.id}`, 'true');
-              window.dispatchEvent(new Event(APP_SHELL_STORAGE_EVENT));
-            }}
-          >
-            Start Working
-          </button>
-        </div>
-      </div>
+      <PlatformWelcomeGate
+        user={currentUser}
+        onStart={() => {
+          window.sessionStorage.setItem(`${WELCOME_STORAGE_KEY}:${currentUser.id}`, 'true');
+          window.dispatchEvent(new Event(APP_SHELL_STORAGE_EVENT));
+        }}
+      />
     );
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1600px]">
-        <Sidebar
-          collapsed={isSidebarCollapsed}
-          onToggleCollapse={() => {
-            window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(!isSidebarCollapsed));
+    <div className="platform-shell lg:flex">
+      <div className="hidden lg:block">
+        <SideMegaMenu user={currentUser} pathname={pathname} />
+      </div>
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+        <AppHeader
+          user={currentUser}
+          isDemoMode={session.isDemoMode}
+          themeMode={themeMode}
+          onOpenMobileNav={() => setIsMobileNavOpen(true)}
+          onThemeModeChange={(nextMode) => {
+            window.localStorage.setItem(THEME_STORAGE_KEY, nextMode);
             window.dispatchEvent(new Event(APP_SHELL_STORAGE_EVENT));
           }}
-          user={currentUser}
         />
-        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-          <AppHeader
-            user={currentUser}
-            isDemoMode={session.isDemoMode}
-            isSidebarCollapsed={isSidebarCollapsed}
-            themeMode={themeMode}
-            onOpenMobileNav={() => setIsMobileNavOpen(true)}
-            onThemeModeChange={(nextMode) => {
-              window.localStorage.setItem(THEME_STORAGE_KEY, nextMode);
-              window.dispatchEvent(new Event(APP_SHELL_STORAGE_EVENT));
-            }}
-            onToggleSidebar={() => {
-              window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(!isSidebarCollapsed));
-              window.dispatchEvent(new Event(APP_SHELL_STORAGE_EVENT));
-            }}
-          />
-          <main className="flex-1 px-4 pb-10 pt-5 sm:px-6 lg:px-8 lg:pt-6">
-            <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-              {session.isDemoMode ? (
-                <div className="rounded-3xl border border-border bg-muted px-4 py-3 text-sm text-foreground">
-                  Estás viendo la app en modo preparación. Configura Supabase Auth para activar el acceso real en {APP_CONFIG.subdomainReadyHost}.
-                </div>
-              ) : null}
-              {children}
-            </div>
-          </main>
-        </div>
+        <main className="min-h-[calc(100vh-var(--shell-header-height))] min-w-0 flex-1">
+          <PageContainer size="wide" className="flex flex-col gap-6">
+            {session.isDemoMode ? <PlatformDemoBanner /> : null}
+            {children}
+          </PageContainer>
+        </main>
       </div>
-      <MobileNav open={isMobileNavOpen} onClose={() => setIsMobileNavOpen(false)} user={currentUser} />
+      <MobileNav
+        open={isMobileNavOpen}
+        onClose={() => setIsMobileNavOpen(false)}
+        user={currentUser}
+        isDemoMode={session.isDemoMode}
+        themeMode={themeMode}
+        onThemeModeChange={(nextMode) => {
+          window.localStorage.setItem(THEME_STORAGE_KEY, nextMode);
+          window.dispatchEvent(new Event(APP_SHELL_STORAGE_EVENT));
+        }}
+      />
     </div>
   );
 }

@@ -1,0 +1,431 @@
+import type { Route } from 'next';
+
+import type { NavigationIconKey } from '@/config/navigation';
+import type { PermissionKey } from '@/types/auth';
+
+export type PlatformModuleKey = 'dashboard' | 'crm' | 'finance' | 'operations' | 'tasks' | 'inventory' | 'team' | 'settings';
+
+export type PlatformSubmoduleStatus = 'ready' | 'planned';
+
+export interface PlatformSubmodule {
+  key: string;
+  label: string;
+  href?: Route;
+  permissions: readonly PermissionKey[];
+  matchPrefixes?: readonly string[];
+  description?: string;
+  status: PlatformSubmoduleStatus;
+}
+
+export interface PlatformModule {
+  key: PlatformModuleKey;
+  label: string;
+  shortLabel?: string;
+  defaultHref: Route;
+  icon: NavigationIconKey;
+  permissions: readonly PermissionKey[];
+  matchPrefixes: readonly string[];
+  submodules: readonly PlatformSubmodule[];
+}
+
+export const platformNavigationModules = [
+  {
+    key: 'dashboard',
+    label: 'Dashboard',
+    shortLabel: 'Inicio',
+    defaultHref: '/dashboard',
+    icon: 'dashboard',
+    permissions: ['dashboard.view'],
+    matchPrefixes: ['/dashboard'],
+    submodules: [
+      {
+        key: 'overview',
+        label: 'Overview',
+        href: '/dashboard',
+        permissions: ['dashboard.view'],
+        matchPrefixes: ['/dashboard'],
+        description: 'Resumen operativo del negocio.',
+        status: 'ready',
+      },
+    ],
+  },
+  {
+    key: 'crm',
+    label: 'CRM',
+    defaultHref: '/leads',
+    icon: 'leads',
+    permissions: ['crm.view', 'quotes.view'],
+    matchPrefixes: ['/leads', '/clientes', '/cotizaciones'],
+    submodules: [
+      {
+        key: 'leads',
+        label: 'Leads',
+        href: '/leads',
+        permissions: ['crm.view'],
+        matchPrefixes: ['/leads'],
+        description: 'Pipeline comercial y seguimiento de oportunidades.',
+        status: 'ready',
+      },
+      {
+        key: 'new-lead',
+        label: 'New Lead',
+        href: '/leads/nuevo',
+        permissions: ['crm.view'],
+        matchPrefixes: ['/leads/nuevo'],
+        description: 'Crear una nueva oportunidad comercial.',
+        status: 'ready',
+      },
+      {
+        key: 'clients',
+        label: 'Clients',
+        href: '/clientes',
+        permissions: ['crm.view'],
+        matchPrefixes: ['/clientes'],
+        description: 'Clientes convertidos desde ventas aceptadas.',
+        status: 'ready',
+      },
+      {
+        key: 'quotes',
+        label: 'Quotes',
+        href: '/cotizaciones',
+        permissions: ['quotes.view'],
+        matchPrefixes: ['/cotizaciones'],
+        description: 'Propuestas comerciales y seguimiento de venta.',
+        status: 'ready',
+      },
+    ],
+  },
+  {
+    key: 'finance',
+    label: 'Finances',
+    shortLabel: 'Finanzas',
+    defaultHref: '/finanzas/invoices',
+    icon: 'finanzas',
+    permissions: ['finance.view'],
+    matchPrefixes: ['/finanzas'],
+    submodules: [
+      {
+        key: 'overview',
+        label: 'Overview',
+        href: '/finanzas',
+        permissions: ['finance.view'],
+        description: 'Resumen financiero y control interno.',
+        status: 'ready',
+      },
+      {
+        key: 'estimates',
+        label: 'Estimates',
+        permissions: ['quotes.view'],
+        description: 'Cotizaciones financieras separadas para una fase posterior.',
+        status: 'planned',
+      },
+      {
+        key: 'invoices',
+        label: 'Invoices',
+        href: '/finanzas/invoices',
+        permissions: ['finance.invoices.view'],
+        matchPrefixes: ['/finanzas/invoices'],
+        description: 'Invoices, aging, follow-up y trazabilidad de pagos.',
+        status: 'ready',
+      },
+      {
+        key: 'bills-expenses',
+        label: 'Bills / Expenses',
+        href: '/finanzas/expenses',
+        permissions: ['finance.expenses.view', 'finance.expenses.manage', 'finance.expenses.approve'],
+        matchPrefixes: ['/finanzas/expenses'],
+        description: 'Gastos, receipts, categorización y aprobaciones.',
+        status: 'ready',
+      },
+      {
+        key: 'payments',
+        label: 'Payments',
+        permissions: ['finance.invoices.view'],
+        description: 'Control de pagos separado para una fase posterior.',
+        status: 'planned',
+      },
+      {
+        key: 'reports',
+        label: 'Reports',
+        href: '/finanzas/reports',
+        permissions: ['finance.view'],
+        matchPrefixes: ['/finanzas/reports'],
+        description: 'Reportes operativos de ingresos, gastos y rentabilidad.',
+        status: 'ready',
+      },
+      {
+        key: 'accounting',
+        label: 'Accounting',
+        href: '/finanzas/accounting',
+        permissions: ['finance.view'],
+        matchPrefixes: ['/finanzas/accounting'],
+        description: 'Journal entries y soporte de contabilidad interna.',
+        status: 'ready',
+      },
+      {
+        key: 'taxes',
+        label: 'Taxes',
+        href: '/finanzas/taxes',
+        permissions: ['finance.view'],
+        matchPrefixes: ['/finanzas/taxes'],
+        description: 'Soporte de revisión y preparación de impuestos.',
+        status: 'ready',
+      },
+      {
+        key: 'settings',
+        label: 'Settings',
+        href: '/finanzas/settings',
+        permissions: ['finance.manage_defaults'],
+        matchPrefixes: ['/finanzas/settings'],
+        description: 'Defaults financieros y parámetros internos.',
+        status: 'ready',
+      },
+    ],
+  },
+  {
+    key: 'operations',
+    label: 'Operations',
+    shortLabel: 'Operaciones',
+    defaultHref: '/reservas',
+    icon: 'eventos',
+    permissions: ['events.view', 'communication.view', 'notifications.view', 'internal_tickets.manage'],
+    matchPrefixes: ['/reservas', '/eventos', '/comunicacion', '/notificaciones', '/oficina-solicitudes'],
+    submodules: [
+      {
+        key: 'reservations',
+        label: 'Reservations',
+        href: '/reservas',
+        permissions: ['events.view'],
+        matchPrefixes: ['/reservas'],
+        description: 'Pre-eventos y reservas iniciales para operación.',
+        status: 'ready',
+      },
+      {
+        key: 'events',
+        label: 'Events',
+        href: '/eventos',
+        permissions: ['events.view'],
+        matchPrefixes: ['/eventos'],
+        description: 'Eventos confirmados y ejecución operativa.',
+        status: 'ready',
+      },
+      {
+        key: 'communication',
+        label: 'Communication',
+        href: '/comunicacion',
+        permissions: ['communication.view'],
+        matchPrefixes: ['/comunicacion'],
+        description: 'Canales internos de coordinación y seguimiento.',
+        status: 'ready',
+      },
+      {
+        key: 'notifications',
+        label: 'Notifications',
+        href: '/notificaciones',
+        permissions: ['notifications.view'],
+        matchPrefixes: ['/notificaciones'],
+        description: 'Recordatorios internos y alertas de seguimiento.',
+        status: 'ready',
+      },
+      {
+        key: 'internal-requests',
+        label: 'Internal Requests',
+        href: '/oficina-solicitudes',
+        permissions: ['internal_tickets.manage'],
+        matchPrefixes: ['/oficina-solicitudes'],
+        description: 'Inbox de solicitudes internas del equipo.',
+        status: 'ready',
+      },
+    ],
+  },
+  {
+    key: 'tasks',
+    label: 'Tasks',
+    shortLabel: 'Tareas',
+    defaultHref: '/tareas',
+    icon: 'tareas',
+    permissions: ['tasks.view'],
+    matchPrefixes: ['/tareas'],
+    submodules: [
+      {
+        key: 'table-board',
+        label: 'Table / Board',
+        href: '/tareas',
+        permissions: ['tasks.view'],
+        matchPrefixes: ['/tareas'],
+        description: 'Vista principal de tareas operativas.',
+        status: 'ready',
+      },
+      {
+        key: 'my-tasks',
+        label: 'My Tasks',
+        permissions: ['tasks.view'],
+        description: 'Vista personal de tareas para una fase posterior.',
+        status: 'planned',
+      },
+      {
+        key: 'calendar',
+        label: 'Calendar',
+        permissions: ['tasks.view'],
+        description: 'Calendario de tareas para una fase posterior.',
+        status: 'planned',
+      },
+      {
+        key: 'templates',
+        label: 'Templates',
+        permissions: ['tasks.manage'],
+        description: 'Plantillas de tareas para una fase posterior.',
+        status: 'planned',
+      },
+      {
+        key: 'automations',
+        label: 'Automations',
+        permissions: ['tasks.manage'],
+        description: 'Automatizaciones de tareas para una fase posterior.',
+        status: 'planned',
+      },
+    ],
+  },
+  {
+    key: 'inventory',
+    label: 'Inventory',
+    shortLabel: 'Inventario',
+    defaultHref: '/inventario',
+    icon: 'inventario',
+    permissions: ['inventory.view', 'inventory.templates.view', 'inventory.templates.manage'],
+    matchPrefixes: ['/inventario', '/configuracion/listas-maestras-inventario'],
+    submodules: [
+      {
+        key: 'overview',
+        label: 'Overview',
+        href: '/inventario',
+        permissions: ['inventory.view'],
+        matchPrefixes: ['/inventario'],
+        description: 'Materiales, stock actual y necesidades de eventos.',
+        status: 'ready',
+      },
+      {
+        key: 'stock',
+        label: 'Stock',
+        permissions: ['inventory.view'],
+        description: 'Control de stock separado para una fase posterior.',
+        status: 'planned',
+      },
+      {
+        key: 'event-needs',
+        label: 'Event Needs',
+        permissions: ['inventory.prepare'],
+        description: 'Necesidades por evento para una fase posterior.',
+        status: 'planned',
+      },
+      {
+        key: 'templates',
+        label: 'Templates',
+        href: '/configuracion/listas-maestras-inventario',
+        permissions: ['inventory.templates.view', 'inventory.templates.manage'],
+        matchPrefixes: ['/configuracion/listas-maestras-inventario'],
+        description: 'Listas maestras reutilizables por barra.',
+        status: 'ready',
+      },
+    ],
+  },
+  {
+    key: 'team',
+    label: 'Team',
+    shortLabel: 'Equipo',
+    defaultHref: '/empleados',
+    icon: 'empleados',
+    permissions: ['employees.view'],
+    matchPrefixes: ['/empleados'],
+    submodules: [
+      {
+        key: 'employees',
+        label: 'Employees',
+        href: '/empleados',
+        permissions: ['employees.view'],
+        description: 'Asignaciones, reportes operativos y panel del staff.',
+        status: 'ready',
+      },
+      {
+        key: 'review',
+        label: 'Review',
+        href: '/empleados/revision',
+        permissions: ['employees.view'],
+        matchPrefixes: ['/empleados/revision'],
+        description: 'Revisión operativa del equipo.',
+        status: 'ready',
+      },
+      {
+        key: 'assignments',
+        label: 'Assignments',
+        permissions: ['employees.view'],
+        description: 'Asignaciones de equipo para una fase posterior.',
+        status: 'planned',
+      },
+    ],
+  },
+  {
+    key: 'settings',
+    label: 'Settings',
+    shortLabel: 'Config.',
+    defaultHref: '/configuracion',
+    icon: 'configuracion',
+    permissions: ['settings.view', 'admin.users.manage'],
+    matchPrefixes: ['/configuracion'],
+    submodules: [
+      {
+        key: 'overview',
+        label: 'Overview',
+        href: '/configuracion',
+        permissions: ['settings.view', 'admin.users.manage'],
+        description: 'Entrada administrativa y controles sensibles.',
+        status: 'ready',
+      },
+      {
+        key: 'users',
+        label: 'Users',
+        href: '/configuracion/usuarios',
+        permissions: ['admin.users.manage'],
+        matchPrefixes: ['/configuracion/usuarios'],
+        description: 'Usuarios, roles y permisos.',
+        status: 'ready',
+      },
+      {
+        key: 'business-payments',
+        label: 'Business & Payments',
+        href: '/configuracion/negocio-pagos',
+        permissions: ['settings.view'],
+        matchPrefixes: ['/configuracion/negocio-pagos'],
+        description: 'Datos del negocio y configuración de pagos.',
+        status: 'ready',
+      },
+      {
+        key: 'email-templates',
+        label: 'Email Templates',
+        href: '/configuracion/plantillas-email',
+        permissions: ['settings.view'],
+        matchPrefixes: ['/configuracion/plantillas-email'],
+        description: 'Plantillas de comunicación por email.',
+        status: 'ready',
+      },
+      {
+        key: 'operations-templates',
+        label: 'Operations Templates',
+        href: '/configuracion/plantillas-operativas',
+        permissions: ['settings.view'],
+        matchPrefixes: ['/configuracion/plantillas-operativas'],
+        description: 'Plantillas operativas reutilizables.',
+        status: 'ready',
+      },
+      {
+        key: 'inventory-master-lists',
+        label: 'Inventory Master Lists',
+        href: '/configuracion/listas-maestras-inventario',
+        permissions: ['inventory.templates.view', 'inventory.templates.manage'],
+        matchPrefixes: ['/configuracion/listas-maestras-inventario'],
+        description: 'Listas maestras de inventario por barra.',
+        status: 'ready',
+      },
+    ],
+  },
+] as const satisfies readonly PlatformModule[];
