@@ -31,7 +31,20 @@
   --space-4: 1rem;
   --space-6: 1.5rem;
   --space-8: 2rem;
+  --shell-canvas: 220 33% 98%;
+  --shell-surface: 0 0% 100%;
+  --shell-surface-muted: 210 40% 97%;
+  --shell-border: 214 32% 91%;
+  --shell-subtle: 215 16% 46%;
+  --shell-warning: 42 100% 96%;
+  --shell-warning-foreground: 32 95% 25%;
+  --shell-nav-accent: 221 83% 38%;
+  --shell-nav-accent-foreground: 214 100% 97%;
+  --shell-header-height: 4.25rem;
+  --shell-content-width: 80rem;
+  --shell-wide-width: 96rem;
 }
+
 
 .dark {
   color-scheme: dark;
@@ -54,6 +67,15 @@
   --border: 216 22% 26%;
   --input: 216 22% 26%;
   --ring: 160 72% 44%;
+  --shell-canvas: 224 38% 10%;
+  --shell-surface: 222 32% 13%;
+  --shell-surface-muted: 217 25% 18%;
+  --shell-border: 216 22% 26%;
+  --shell-subtle: 215 20% 74%;
+  --shell-warning: 38 70% 16%;
+  --shell-warning-foreground: 42 96% 78%;
+  --shell-nav-accent: 217 91% 66%;
+  --shell-nav-accent-foreground: 224 38% 10%;
 }
 
 * {
@@ -89,6 +111,19 @@ body.dark {
 @layer components {
   .page-shell {
     @apply mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pb-24 pt-4 sm:px-6 lg:px-8 lg:pb-8;
+  }
+
+  .platform-shell {
+    @apply min-h-screen bg-shell-canvas text-foreground;
+  }
+
+  .platform-header-surface {
+    @apply border-b border-shell-border shadow-shell-sm backdrop-blur;
+    background-color: hsl(var(--shell-surface) / 0.92);
+  }
+
+  .platform-page-container {
+    @apply mx-auto w-full max-w-shell-content px-4 py-6 sm:px-6 lg:px-8 lg:py-8;
   }
 
   .glass-panel {

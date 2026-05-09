@@ -1,3 +1,4 @@
+import type { Route } from 'next';
 import Link from 'next/link';
 
 import { ContractorPayoutSummaryTable } from '@/components/finance/contractor-payout-summary-table';
@@ -144,7 +145,7 @@ export default async function FinanzasPage() {
   );
 }
 
-function QuickLinkCard({ title, description, href, cta }: { title: string; description: string; href: string; cta: string }) {
+function QuickLinkCard({ title, description, href, cta }: { title: string; description: string; href: Route; cta: string }) {
   return (
     <Card>
       <CardHeader>
